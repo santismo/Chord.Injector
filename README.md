@@ -28,4 +28,4 @@ https://santismo.github.io/Chord.Injector/
 ## Notes
 - The page must be served over HTTP (GitHub Pages works). Local `file://` URLs will not allow fetch or Web MIDI access.
 - In block-chord mode, enable `Hold block chords until next chord` to gate the chord lengths cleanly.
-- `Preserve original MIDI notes` keeps the captured MIDI instead of generating block chords.
+- `Preserve original MIDI notes` keeps the captured MIDI instead of generating block chords.(still experimental)

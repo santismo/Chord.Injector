@@ -1589,7 +1589,7 @@
         return bytes;
       }
 
-      function shortenMidiNotes(midiBytes, factor, chordTicks, gateMode) {
+      function shortenMidiNotes(midiBytes, factor, chordTicks, gateMode, forceEndTick) {
         const bytes = midiBytes instanceof Uint8Array ? midiBytes : new Uint8Array(midiBytes);
         const buffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
         const view = new DataView(buffer);
@@ -1745,14 +1745,18 @@
             }
           });
 
-          const trimTick = getTrimTickFromEvents(events);
+          let trimTick = getTrimTickFromEvents(events);
           const endEvents = events.filter(isEndOfTrackEvent);
           let activeEvents = events.filter((event) => !isEndOfTrackEvent(event));
           if (trimTick !== null) {
             activeEvents = activeEvents.filter((event) => event.tick <= trimTick);
           }
           activeEvents.sort((a, b) => (a.tick !== b.tick ? a.tick - b.tick : a.order - b.order));
-          const maxTick = trimTick !== null ? trimTick : (activeEvents.length ? activeEvents[activeEvents.length - 1].tick : 0);
+          let maxTick = trimTick !== null ? trimTick : (activeEvents.length ? activeEvents[activeEvents.length - 1].tick : 0);
+          if (Number.isFinite(forceEndTick) && forceEndTick > maxTick) {
+            maxTick = Math.round(forceEndTick);
+            trimTick = maxTick;
+          }
           if (!endEvents.length) {
             endEvents.push({ tick: maxTick, order: Number.MAX_SAFE_INTEGER, bytes: [0xff, 0x2f, 0x00] });
           } else {
@@ -1826,6 +1830,17 @@
         if (lastNoteOff !== null) return lastNoteOff;
         if (lastNoteOn !== null) return lastNoteOn;
         return lastAny;
+      }
+
+      function getLastNoteTick(noteEvents) {
+        if (!Array.isArray(noteEvents) || !noteEvents.length) return null;
+        let last = null;
+        noteEvents.forEach((event) => {
+          if (event && typeof event.tick === "number") {
+            if (last === null || event.tick > last) last = event.tick;
+          }
+        });
+        return last;
       }
 
       function isMidiBytes(data) {
@@ -2026,13 +2041,15 @@
         const preserveOriginal = shouldPreserveOriginalMidi();
         const gateToNext = !preserveOriginal && chordOptions.gateToNext;
         const rawMidiBytes = buildMidiFileFromMessages(messages, ppq, bpm, startTime, 1);
+        const originalEndTick = !preserveOriginal ? getLastNoteTick(noteEvents) : null;
         const midiBytes = preserveOriginal
           ? rawMidiBytes
           : shortenMidiNotes(
               rawMidiBytes,
               NOTE_LENGTH_FACTOR,
               getChordTicks(chords),
-              gateToNext ? "toNext" : null
+              gateToNext ? "toNext" : null,
+              originalEndTick
             );
         const includeSequNotes = !preserveOriginal;
         const aiffResult = await buildAiffFromChords(
@@ -2102,13 +2119,15 @@
           const preserveOriginal = shouldPreserveOriginalMidi();
           const gateToNext = !preserveOriginal && options.gateToNext;
           const rawMidiBytes = new Uint8Array(buffer);
+          const originalEndTick = !preserveOriginal ? getLastNoteTick(midiInfo.noteEvents) : null;
           const midiBytes = preserveOriginal
             ? rawMidiBytes
             : shortenMidiNotes(
                 rawMidiBytes,
                 NOTE_LENGTH_FACTOR,
                 getChordTicks(chords),
-                gateToNext ? "toNext" : null
+                gateToNext ? "toNext" : null,
+                originalEndTick
               );
           const includeSequNotes = !preserveOriginal;
           const aiffResult = await buildAiffFromChords(

@@ -1,0 +1,2460 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Chord.Injector 💉</title>
+    <style>
+      :root {
+        --bg: #0c0f14;
+        --bg-2: #151a22;
+        --ink: #f2f0ea;
+        --muted: #a7a4a0;
+        --accent: #e07a5f;
+        --accent-2: #81b29a;
+        --card: #191e27;
+        --border: #252c37;
+        --shadow: 0 18px 38px rgba(0, 0, 0, 0.4);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        font-family: "Avenir Next", "Futura", "Trebuchet MS", sans-serif;
+        color: var(--ink);
+        background:
+          radial-gradient(700px 420px at 80% 0%, rgba(224, 122, 95, 0.12), transparent 65%),
+          radial-gradient(520px 360px at 20% 15%, rgba(129, 178, 154, 0.12), transparent 60%),
+          linear-gradient(180deg, var(--bg), var(--bg-2));
+        min-height: 100vh;
+      }
+
+      header {
+        padding: 32px 20px 16px;
+        text-align: center;
+      }
+
+      header h1 {
+        margin: 0 0 8px;
+        font-size: clamp(1.8rem, 4.5vw, 2.8rem);
+        letter-spacing: 0.02em;
+      }
+
+      header p {
+        margin: 0;
+        color: var(--muted);
+        font-size: 0.95rem;
+      }
+
+      main {
+        max-width: 1040px;
+        margin: 0 auto;
+        padding: 0 20px 48px;
+        display: grid;
+        grid-template-columns: 1.3fr 0.7fr;
+        gap: 18px;
+      }
+
+      .stack {
+        display: grid;
+        gap: 18px;
+      }
+
+      .card {
+        background: var(--card);
+        border: 1px solid var(--border);
+        border-radius: 16px;
+        padding: 16px;
+        box-shadow: var(--shadow);
+        animation: rise 0.6s ease both;
+      }
+
+      .card h2 {
+        margin: 0 0 12px;
+        font-size: 1.1rem;
+        letter-spacing: 0.02em;
+      }
+
+      .actions {
+        margin-top: 12px;
+        display: flex;
+        justify-content: center;
+        gap: 12px;
+        flex-wrap: wrap;
+        align-items: center;
+      }
+
+      button,
+      .button {
+        border: none;
+        border-radius: 999px;
+        padding: 8px 16px;
+        font-size: 0.9rem;
+        cursor: pointer;
+        font-weight: 600;
+        background: var(--accent);
+        color: #fff;
+        transition: transform 0.2s ease, box-shadow 0.2s ease;
+        text-decoration: none;
+      }
+
+      button:hover,
+      .button:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 10px 20px rgba(217, 107, 71, 0.3);
+      }
+
+      button.secondary {
+        background: var(--accent-2);
+      }
+
+      .options {
+        display: grid;
+        gap: 10px;
+      }
+
+      .options.compact {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 10px;
+      }
+
+      .options label {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 0.95rem;
+        color: var(--muted);
+      }
+
+      .options select,
+      .options input[type="text"],
+      .options input[type="number"] {
+        width: 100%;
+        padding: 8px 10px;
+        border-radius: 10px;
+        border: 1px solid var(--border);
+        font-size: 0.95rem;
+        background: #10141c;
+        color: var(--ink);
+      }
+
+      .options .group {
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 10px;
+        background: #171b22;
+      }
+
+      .span-2 {
+        grid-column: 1 / -1;
+      }
+
+      .output .row {
+        display: flex;
+        gap: 16px;
+        flex-wrap: wrap;
+        align-items: center;
+      }
+
+      #log {
+        margin-top: 10px;
+        font-family: "Courier New", Courier, monospace;
+        font-size: 0.82rem;
+        color: #e7e5df;
+        background: #141821;
+        padding: 10px;
+        border-radius: 10px;
+        max-height: 140px;
+        overflow: auto;
+      }
+
+      .live-chord {
+        font-size: 1.3rem;
+        font-weight: 700;
+        letter-spacing: 0.04em;
+        margin-top: 8px;
+      }
+
+      .pill {
+        display: inline-block;
+        padding: 4px 10px;
+        border-radius: 999px;
+        background: rgba(217, 107, 71, 0.15);
+        color: var(--muted);
+        font-size: 0.8rem;
+      }
+
+      .hint {
+        margin-top: 8px;
+        font-size: 0.82rem;
+        color: var(--muted);
+      }
+
+      .listen-status {
+        background: rgba(47, 111, 109, 0.15);
+      }
+
+      @keyframes rise {
+        from {
+          opacity: 0;
+          transform: translateY(16px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+
+      @media (max-width: 900px) {
+        main {
+          grid-template-columns: 1fr;
+        }
+        .options.compact {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>Chord.Injector 💉</h1>
+    </header>
+
+    <main>
+      <section class="card">
+        <h2>Upload MIDI</h2>
+        <div class="options">
+          <div class="group">
+            <strong>Convert MIDI File</strong>
+            <label>
+              Choose MIDI file
+              <input id="midi-file" type="file" accept=".mid,.midi,audio/midi">
+            </label>
+            <div class="actions">
+              <button id="midi-convert" class="secondary" type="button">Convert MIDI to AIFF</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="card output">
+        <h2>Output</h2>
+        <div class="row">
+          <button id="download-btn" class="button" type="button" disabled>Download AIFF</button>
+          <div id="output-name" class="pill">No output yet</div>
+        </div>
+        <div class="hint">Download saves to your Downloads folder. Drag the AIFF from Finder into Logic.</div>
+        <div id="summary"></div>
+      </section>
+
+      <div class="stack span-2">
+        <section class="card">
+          <h2>Live Chord</h2>
+          <div id="live-chord" class="live-chord">—</div>
+        </section>
+
+        <section class="card">
+          <h2>Live Listen (Logic Pro MIDI Out)</h2>
+          <div class="options">
+            <div class="group">
+              <strong>MIDI Input</strong>
+              <label>
+                Device
+                <select id="midi-input">
+                  <option value="">Enable MIDI to list inputs</option>
+                </select>
+              </label>
+              <div class="actions">
+                <button id="enable-midi" class="secondary" type="button">Enable MIDI</button>
+                <button id="listen-toggle" type="button">Start Listening</button>
+              </div>
+              <div id="listen-status" class="pill listen-status">Not listening</div>
+            </div>
+          </div>
+          <div id="log"></div>
+        </section>
+      </div>
+
+      <section class="card span-2">
+        <h2>Settings</h2>
+        <div class="options compact">
+          <div class="group">
+            <strong>Timing</strong>
+            <label>
+              Assumed BPM
+              <input id="listen-bpm" type="number" min="30" max="300" value="120">
+            </label>
+            <label>
+              PPQ (ticks per quarter)
+              <input id="listen-ppq" type="number" min="96" max="1920" value="480">
+            </label>
+            <label>
+              <input id="listen-use-clock" type="checkbox" checked>
+              Use MIDI clock if present
+            </label>
+          </div>
+          <div class="group">
+            <strong>Detection</strong>
+            <label>
+              Min notes for chord
+              <select id="min-notes">
+                <option value="2">2</option>
+                <option value="3" selected>3</option>
+                <option value="4">4</option>
+              </select>
+            </label>
+            <label>
+              <input id="ignore-drums" type="checkbox" checked>
+              Ignore drums (MIDI channel 10)
+            </label>
+            <label>
+              <input id="allow-extensions" type="checkbox" checked>
+              Allow extra notes (treat as extensions)
+            </label>
+            <label>
+              <input id="emit-nc" type="checkbox">
+              Emit "N.C." when no chord
+            </label>
+            <label>
+              <input id="preserve-midi" type="checkbox">
+              Preserve original MIDI notes (experimental)
+            </label>
+            <label>
+              <input id="gate-to-next" type="checkbox" checked>
+              Hold block chords until next chord
+            </label>
+          </div>
+          <div class="group">
+            <strong>Naming</strong>
+            <label>
+              <input id="prefer-flats" type="checkbox" checked>
+              Prefer flat note names (Db, Eb, Bb)
+            </label>
+            <label>
+              <input id="use-slash" type="checkbox" checked>
+              Emit slash chords for inversions
+            </label>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <script>
+      const logEl = document.getElementById("log");
+      const downloadBtn = document.getElementById("download-btn");
+      const outputName = document.getElementById("output-name");
+      const summaryEl = document.getElementById("summary");
+      const midiInputSelect = document.getElementById("midi-input");
+      const enableMidiBtn = document.getElementById("enable-midi");
+      const listenToggleBtn = document.getElementById("listen-toggle");
+      const listenStatus = document.getElementById("listen-status");
+      const listenBpmInput = document.getElementById("listen-bpm");
+      const listenPpqInput = document.getElementById("listen-ppq");
+      const listenUseClockInput = document.getElementById("listen-use-clock");
+      const midiFileInput = document.getElementById("midi-file");
+      const midiConvertBtn = document.getElementById("midi-convert");
+      const liveChordEl = document.getElementById("live-chord");
+
+      let outputBlobUrl = null;
+      let outputFileName = null;
+      let outputBlob = null;
+      let templateAiffBuffer = null;
+      let templateSequInfo = null;
+      let midiAccess = null;
+      let activeInput = null;
+      let isListening = false;
+      let recordStartTime = null;
+      let recordStopTime = null;
+      let recordedMessages = [];
+      let clockTimes = [];
+      let activeNoteCounts = new Map();
+      let lastLiveChord = null;
+
+      const TEMPLATE_AIFF_BASE64 = ``;
+      const TEMPLATE_AIFF_PARTS = ["template.part1", "template.part2"];
+
+      const NOTE_NAMES_SHARP = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
+      const NOTE_NAMES_FLAT = ["C", "Db", "D", "Eb", "E", "F", "Gb", "G", "Ab", "A", "Bb", "B"];
+
+      const CHORD_PATTERNS = [
+        { name: "7(9,#11,13)", intervals: [0, 2, 4, 6, 7, 9, 10], priority: 7 },
+        { name: "m7(9,11,b13)", intervals: [0, 2, 3, 5, 7, 8, 10], priority: 7 },
+        { name: "6(9,11)b5", intervals: [0, 2, 4, 5, 6, 9], priority: 6 },
+        { name: "m(9,13,b5)", intervals: [0, 2, 3, 6, 9, 10], priority: 6 },
+        { name: "aug7(9,11)", intervals: [0, 2, 4, 5, 8, 10], priority: 6 },
+        { name: "7(9,b13)sus4", intervals: [0, 2, 5, 7, 8, 10], priority: 6 },
+        { name: "m7(9,11)", intervals: [0, 2, 3, 5, 7, 10], priority: 6 },
+        { name: "maj7(9)", intervals: [0, 2, 4, 7, 11], priority: 6 },
+        { name: "9", intervals: [0, 2, 4, 7, 10], priority: 6 },
+        { name: "7(b9)", intervals: [0, 1, 4, 7, 10], priority: 6 },
+        { name: "7(#9)", intervals: [0, 3, 4, 7, 10], priority: 6 },
+        { name: "7(9)sus4", intervals: [0, 2, 5, 7, 10], priority: 6 },
+        { name: "no3(7,9,11,#5)", intervals: [0, 2, 5, 8, 10], priority: 6 },
+        { name: "maj7(9)sus4", intervals: [0, 2, 5, 7, 11], priority: 6 },
+        { name: "m7b5(13)", intervals: [0, 3, 6, 9, 10], priority: 6 },
+        { name: "dim7(b9)", intervals: [0, 1, 3, 6, 9], priority: 6 },
+        { name: "maj7", intervals: [0, 4, 7, 11], priority: 5 },
+        { name: "7", intervals: [0, 4, 7, 10], priority: 5 },
+        { name: "m7", intervals: [0, 3, 7, 10], priority: 5 },
+        { name: "6", intervals: [0, 4, 7, 9], priority: 5 },
+        { name: "mmaj7", intervals: [0, 3, 7, 11], priority: 5 },
+        { name: "(b13)", intervals: [0, 4, 7, 8], priority: 4 },
+        { name: "add11", intervals: [0, 4, 5, 7], priority: 4 },
+        { name: "(#11)", intervals: [0, 4, 6, 7], priority: 4 },
+        { name: "aug", intervals: [0, 4, 8], priority: 4 },
+        { name: "dim", intervals: [0, 3, 6], priority: 4 },
+        { name: "(b5)", intervals: [0, 4, 6], priority: 4 },
+        { name: "no3(b5)", intervals: [0, 6], priority: 4 },
+        { name: "sus2", intervals: [0, 2, 7], priority: 4 },
+        { name: "sus4", intervals: [0, 5, 7], priority: 4 },
+        { name: "", intervals: [0, 4, 7], priority: 4 },
+        { name: "m", intervals: [0, 3, 7], priority: 4 },
+        { name: "5", intervals: [0, 7], priority: 3 }
+      ];
+
+      const ROOT_TO_PC = {
+        C: 0,
+        "C#": 1,
+        Db: 1,
+        D: 2,
+        "D#": 3,
+        Eb: 3,
+        E: 4,
+        F: 5,
+        "F#": 6,
+        Gb: 6,
+        G: 7,
+        "G#": 8,
+        Ab: 8,
+        A: 9,
+        "A#": 10,
+        Bb: 10,
+        B: 11
+      };
+
+      const SEQU_DESCRIPTOR_CODES = {
+        "7(9,#11,13)": 0xd5060103,
+        "6(9,11)b5": 0x65020205,
+        "dim7(b9)": 0x4b020308,
+        "": 0x9100070f,
+        m: 0x8900070f,
+        sus2: 0x8500070f,
+        sus4: 0xa100070f,
+        "5": 0x8100070f,
+        "(b5)": 0x5100070f,
+        "no3(b5)": 0x4100070f,
+        dim: 0x4900070f,
+        aug: 0x1101070f,
+        "6": 0x9102070f,
+        "7": 0x9104070f,
+        "9": 0x9504070f,
+        maj7: 0x9108070f,
+        "7(b9)": 0x9304070f,
+        "7(#9)": 0x9904070f,
+        "maj7(9)": 0x9508070f,
+        add11: 0xb100070f,
+        "(#11)": 0xd100070f,
+        "(b13)": 0x9101070f,
+        mmaj7: 0x8908070f,
+        m7: 0x8904070f,
+        "m7(9,11)": 0xcd04070f,
+        "aug7(9,11)": 0x3505070f,
+        "7(9,b13)sus4": 0xa505070f,
+        "m(9,13,b5)": 0x4d06070f,
+        "7(9)sus4": 0xa504070f,
+        "no3(7,9,11,#5)": 0x2505070f,
+        "m7(9,11,b13)": 0xad05070f,
+        "m7b5(13)": 0x4906070f,
+        "maj7(9)sus4": 0xa508070f
+      };
+
+      const SEQU_SLASH_CODES = {
+        "": 0x91000103
+      };
+
+      const SEQU_INTERVALS = {
+        "7(9,#11,13)": [0, 2, 4, 6, 7, 9, 10],
+        "6(9,11)b5": [0, 2, 4, 5, 6, 9],
+        "dim7(b9)": [0, 1, 3, 6, 9],
+        "": [0, 4, 7],
+        m: [0, 3, 7],
+        sus2: [0, 2, 7],
+        sus4: [0, 5, 7],
+        "5": [0, 7],
+        "(b5)": [0, 4, 6],
+        "no3(b5)": [0, 6],
+        dim: [0, 3, 6],
+        aug: [0, 4, 8],
+        "6": [0, 4, 7, 9],
+        "7": [0, 4, 7, 10],
+        "9": [0, 2, 4, 7, 10],
+        maj7: [0, 4, 7, 11],
+        "7(b9)": [0, 1, 4, 7, 10],
+        "7(#9)": [0, 3, 4, 7, 10],
+        "maj7(9)": [0, 2, 4, 7, 11],
+        add11: [0, 4, 5, 7],
+        "(#11)": [0, 4, 6, 7],
+        "(b13)": [0, 4, 7, 8],
+        mmaj7: [0, 3, 7, 11],
+        m7: [0, 3, 7, 10],
+        "m7(9,11)": [0, 2, 3, 5, 7, 10],
+        "aug7(9,11)": [0, 2, 4, 5, 8, 10],
+        "7(9,b13)sus4": [0, 2, 5, 7, 8, 10],
+        "m(9,13,b5)": [0, 2, 3, 6, 9, 10],
+        "7(9)sus4": [0, 2, 5, 7, 10],
+        "no3(7,9,11,#5)": [0, 2, 5, 8, 10],
+        "m7(9,11,b13)": [0, 2, 3, 5, 7, 8, 10],
+        "m7b5(13)": [0, 3, 6, 9, 10],
+        "maj7(9)sus4": [0, 2, 5, 7, 11]
+      };
+
+      const DESCRIPTOR_PREFIX_OVERRIDES = {
+        "6(9,11)b5": 0x03
+      };
+
+      const NOTE_LENGTH_FACTOR = 0.25;
+      const INCLUDE_SEQU_NOTES = true;
+      const SEQU_NOTE_OFF_WORD = 0x00010000;
+
+      function logLine(message) {
+        const div = document.createElement("div");
+        div.textContent = message;
+        logEl.appendChild(div);
+        logEl.scrollTop = logEl.scrollHeight;
+      }
+
+      function resetLog() {
+        logEl.innerHTML = "";
+      }
+
+      function setListenStatus(text) {
+        listenStatus.textContent = text;
+      }
+
+      function getListenOptions() {
+        return {
+          bpm: parseFloat(listenBpmInput.value) || 120,
+          ppq: parseInt(listenPpqInput.value, 10) || 480,
+          useClock: listenUseClockInput.checked
+        };
+      }
+
+      function estimateBpmFromClock(times) {
+        if (times.length < 6) return null;
+        let total = 0;
+        let count = 0;
+        for (let i = 1; i < times.length; i++) {
+          const delta = times[i] - times[i - 1];
+          if (delta > 0 && delta < 500) {
+            total += delta;
+            count += 1;
+          }
+        }
+        if (!count) return null;
+        const avg = total / count;
+        return 60000 / (avg * 24);
+      }
+
+      function updateLiveChordDisplay() {
+        const options = getOptions();
+        const activeNotes = Array.from(activeNoteCounts.keys()).sort((a, b) => a - b);
+        const chordName = identifyChord(activeNotes, options);
+        const displayName = chordName || (options.emitNC ? "N.C." : "—");
+        if (displayName !== lastLiveChord) {
+          liveChordEl.textContent = displayName;
+          lastLiveChord = displayName;
+        }
+      }
+
+      function readVarLen(view, offset) {
+        let value = 0;
+        let i = 0;
+        while (true) {
+          const byte = view.getUint8(offset + i);
+          value = (value << 7) | (byte & 0x7f);
+          i += 1;
+          if (!(byte & 0x80)) break;
+          if (i > 4) throw new Error("Invalid varlen");
+        }
+        return { value, length: i };
+      }
+
+      function parseMidiNoteEvents(buffer, options) {
+        const view = new DataView(buffer);
+        let offset = 0;
+
+        function readStr(len) {
+          let s = "";
+          for (let i = 0; i < len; i++) {
+            s += String.fromCharCode(view.getUint8(offset + i));
+          }
+          offset += len;
+          return s;
+        }
+
+        function readU32() {
+          const v = view.getUint32(offset, false);
+          offset += 4;
+          return v;
+        }
+
+        function readU16() {
+          const v = view.getUint16(offset, false);
+          offset += 2;
+          return v;
+        }
+
+        if (readStr(4) !== "MThd") {
+          throw new Error("Not a MIDI file");
+        }
+        const headerLen = readU32();
+        const format = readU16();
+        const numTracks = readU16();
+        const division = readU16();
+        if (division & 0x8000) {
+          throw new Error("SMPTE time format is not supported.");
+        }
+        offset += Math.max(0, headerLen - 6);
+
+        const noteEvents = [];
+
+        for (let t = 0; t < numTracks; t++) {
+          const chunkId = readStr(4);
+          if (chunkId !== "MTrk") {
+            throw new Error("Missing MTrk chunk");
+          }
+          const trackLen = readU32();
+          const trackEnd = offset + trackLen;
+          let absTicks = 0;
+          let runningStatus = null;
+
+          while (offset < trackEnd) {
+            const deltaInfo = readVarLen(view, offset);
+            offset += deltaInfo.length;
+            absTicks += deltaInfo.value;
+
+            const statusByte = view.getUint8(offset);
+            let status;
+            if (statusByte < 0x80) {
+              if (runningStatus === null) {
+                throw new Error("Running status without prior status");
+              }
+              status = runningStatus;
+              offset += 1;
+            } else {
+              status = statusByte;
+              offset += 1;
+              if (status < 0xf0) {
+                runningStatus = status;
+              } else {
+                runningStatus = null;
+              }
+            }
+
+            if (status === 0xff) {
+              offset += 1; // meta type
+              const lenInfo = readVarLen(view, offset);
+              offset += lenInfo.length + lenInfo.value;
+              continue;
+            }
+
+            if (status === 0xf0 || status === 0xf7) {
+              const lenInfo = readVarLen(view, offset);
+              offset += lenInfo.length + lenInfo.value;
+              continue;
+            }
+
+            const messageType = status & 0xf0;
+            const dataLen = messageType === 0xc0 || messageType === 0xd0 ? 1 : 2;
+            const channel = status & 0x0f;
+            let data0;
+            let data1 = 0;
+
+            if (statusByte < 0x80) {
+              data0 = statusByte;
+            } else {
+              data0 = view.getUint8(offset);
+              offset += 1;
+            }
+
+            if (dataLen === 2) {
+              data1 = view.getUint8(offset);
+              offset += 1;
+            }
+
+            if (messageType === 0x90 || messageType === 0x80) {
+              if (!(options.ignoreDrums && channel === 9)) {
+                const velocity = data1 || 0;
+                const isOn = messageType === 0x90 && velocity > 0;
+                const isOff = messageType === 0x80 || (messageType === 0x90 && velocity === 0);
+                if (isOn || isOff) {
+                  noteEvents.push({ tick: absTicks, note: data0, on: isOn, channel, velocity: data1 });
+                }
+              }
+            }
+          }
+        }
+
+        noteEvents.sort((a, b) => {
+          if (a.tick !== b.tick) return a.tick - b.tick;
+          if (a.on === b.on) return 0;
+          return a.on ? -1 : 1;
+        });
+
+        return { noteEvents, ppq: division, format, numTracks };
+      }
+
+      function parseChordName(name) {
+        if (!name || name === "N.C.") return null;
+        const parts = name.split("/");
+        const base = parts[0];
+        const match = base.match(/^([A-G])([b#]?)(.*)$/);
+        if (!match) return null;
+        const rootName = match[1] + match[2];
+        const qualityText = match[3] || "";
+        const rootPc = ROOT_TO_PC[rootName];
+        if (rootPc === undefined) return null;
+        const quality = normalizeQuality(qualityText);
+        if (!quality && quality !== "") return null;
+        let bassPc = null;
+        if (parts.length > 1 && parts[1]) {
+          const bassMatch = parts[1].match(/^([A-G])([b#]?)$/);
+          if (bassMatch) {
+            const bassName = bassMatch[1] + bassMatch[2];
+            if (ROOT_TO_PC[bassName] !== undefined) {
+              bassPc = ROOT_TO_PC[bassName];
+            }
+          }
+        }
+        return { rootPc, quality, bassPc };
+      }
+
+      function normalizeQuality(qualityText) {
+        const text = (qualityText || "").toLowerCase().replace(/\s+/g, "");
+        if (!text) return "";
+        const parenMatch = text.match(/\(([^)]+)\)/);
+        const parenTokens = parenMatch ? parenMatch[1].split(",") : [];
+        const baseText = parenMatch ? text.replace(/\([^)]*\)/, "") : text;
+        if (text === "maj") return "";
+        if (text === "min" || text === "minor") return "m";
+        if (text === "5") return "5";
+        if (text.startsWith("no3(")) {
+          if (text.includes("7,9,11,#5")) return "no3(7,9,11,#5)";
+          if (text.includes("b5")) return "no3(b5)";
+        }
+        if (text.startsWith("7(") && baseText.includes("sus4")) {
+          if (parenTokens.includes("9") && parenTokens.includes("b13")) return "7(9,b13)sus4";
+          if (parenTokens.includes("9")) return "7(9)sus4";
+        }
+        if (text.startsWith("7(")) {
+          if (parenTokens.includes("9") && parenTokens.includes("#11") && parenTokens.includes("13")) {
+            return "7(9,#11,13)";
+          }
+        }
+        if (text.startsWith("m7(")) {
+          if (text.includes("9,11,b13")) return "m7(9,11,b13)";
+          if (text.includes("9,11") || text.includes("9,#11")) return "m7(9,11)";
+        }
+        if (text.startsWith("m(") && text.includes("9,13,b5")) return "m(9,13,b5)";
+        if (text.startsWith("aug7") && text.includes("9,11")) return "aug7(9,11)";
+        if (text.startsWith("maj7") && text.includes("9") && text.includes("sus4")) {
+          return "maj7(9)sus4";
+        }
+        if (text.startsWith("maj7") && text.includes("9")) return "maj7(9)";
+        if (text.includes("7,9,b13") && text.includes("sus4")) return "7(9,b13)sus4";
+        if (text.includes("7,9") && text.includes("sus4")) return "7(9)sus4";
+        if (text.includes("7,9,#11,13") || (text.includes("13") && text.includes("#11") && text.includes("7"))) {
+          return "7(9,#11,13)";
+        }
+        if (text.startsWith("6(") && text.includes("9,11") && text.includes("b5")) {
+          return "6(9,11)b5";
+        }
+        if (text.startsWith("dim7") && text.includes("b9")) return "dim7(b9)";
+        if (text.startsWith("m7b5") && text.includes("13")) return "m7b5(13)";
+        if (text.startsWith("mmaj7")) return "mmaj7";
+        if (text === "(b5)" || text === "b5") return "(b5)";
+        if (text === "(#11)" || text === "#11") return "(#11)";
+        if (text === "(b13)" || text === "b13") return "(b13)";
+        if (text.startsWith("add11")) return "add11";
+        if (text.startsWith("7(") && text.includes("b9")) return "7(b9)";
+        if (text.startsWith("7(") && text.includes("#9")) return "7(#9)";
+        if (text === "7b9") return "7(b9)";
+        if (text === "7#9") return "7(#9)";
+        if (text.startsWith("maj7")) return "maj7";
+        if (text === "7") return "7";
+        if (text === "9") return "9";
+        if (text === "6") return "6";
+        if (text.startsWith("sus2")) return "sus2";
+        if (text.startsWith("sus4")) return "sus4";
+        if (text.startsWith("dim")) return "dim";
+        if (text.startsWith("aug")) return "aug";
+        if (text.startsWith("m7")) return "m7";
+        if (text === "m") return "m";
+        if (text.startsWith("m")) return "m";
+        return "";
+      }
+
+      function buildChordNotes(rootPc, quality, bassPc = null) {
+        const intervals = SEQU_INTERVALS[quality] || SEQU_INTERVALS[""];
+        const lowRoot = (rootPc >= 7 ? 36 : 48) + rootPc;
+        const notes = [];
+        if (bassPc !== null && bassPc !== rootPc) {
+          let lowBass = (bassPc >= 7 ? 36 : 48) + bassPc;
+          if (lowBass >= lowRoot) {
+            lowBass -= 12;
+          }
+          notes.push(lowBass);
+        }
+        notes.push(lowRoot);
+        intervals.forEach((interval) => {
+          notes.push(lowRoot + 12 + interval);
+        });
+        return Array.from(new Set(notes)).filter((n) => n >= 0 && n <= 127);
+      }
+
+      function makeSequRecord(w0, w1, w2, w3) {
+        return [w0 >>> 0, w1 >>> 0, w2 >>> 0, w3 >>> 0];
+      }
+
+      function writeUint32BE(view, offset, value) {
+        view.setUint32(offset, value >>> 0, false);
+      }
+
+      function readFourCC(view, offset) {
+        return String.fromCharCode(
+          view.getUint8(offset),
+          view.getUint8(offset + 1),
+          view.getUint8(offset + 2),
+          view.getUint8(offset + 3)
+        );
+      }
+
+      function readExtended80(view, offset) {
+        const rawExp = view.getUint16(offset, false);
+        const hiMant = view.getUint32(offset + 2, false);
+        const loMant = view.getUint32(offset + 6, false);
+        if (rawExp === 0 && hiMant === 0 && loMant === 0) return 0;
+        const sign = rawExp & 0x8000 ? -1 : 1;
+        const exp = (rawExp & 0x7fff) - 16383;
+        const mant = hiMant * Math.pow(2, -31) + loMant * Math.pow(2, -63);
+        return sign * mant * Math.pow(2, exp);
+      }
+
+      function parseAiffChunks(buffer) {
+        const view = new DataView(buffer);
+        const chunks = [];
+        let offset = 12;
+        while (offset + 8 <= buffer.byteLength) {
+          const id = readFourCC(view, offset);
+          const size = view.getUint32(offset + 4, false);
+          const dataStart = offset + 8;
+          const dataEnd = dataStart + size;
+          chunks.push({ id, size, dataStart, dataEnd });
+          offset = dataEnd + (size % 2);
+        }
+        return chunks;
+      }
+
+      function parseMidiTiming(midiBytes) {
+        const buffer = midiBytes instanceof Uint8Array ? midiBytes.buffer.slice(midiBytes.byteOffset, midiBytes.byteOffset + midiBytes.byteLength) : midiBytes;
+        const view = new DataView(buffer);
+        let offset = 0;
+
+        function readStr(len) {
+          let s = "";
+          for (let i = 0; i < len; i++) {
+            s += String.fromCharCode(view.getUint8(offset + i));
+          }
+          offset += len;
+          return s;
+        }
+
+        function readU32() {
+          const v = view.getUint32(offset, false);
+          offset += 4;
+          return v;
+        }
+
+        function readU16() {
+          const v = view.getUint16(offset, false);
+          offset += 2;
+          return v;
+        }
+
+        if (readStr(4) !== "MThd") {
+          throw new Error("Not a MIDI file");
+        }
+        const headerLen = readU32();
+        readU16(); // format
+        const numTracks = readU16();
+        const division = readU16();
+        if (division & 0x8000) {
+          throw new Error("SMPTE time format is not supported.");
+        }
+        offset += Math.max(0, headerLen - 6);
+
+        const tempos = [];
+        let lastTick = 0;
+
+        for (let t = 0; t < numTracks; t++) {
+          if (readStr(4) !== "MTrk") {
+            throw new Error("Invalid MIDI track header");
+          }
+          const trackLen = readU32();
+          const trackEnd = offset + trackLen;
+          let absTicks = 0;
+          let runningStatus = null;
+
+          while (offset < trackEnd) {
+            const { value: delta, length } = readVarLen(view, offset);
+            offset += length;
+            absTicks += delta;
+            let statusByte = view.getUint8(offset);
+            if (statusByte < 0x80 && runningStatus !== null) {
+              statusByte = runningStatus;
+            } else {
+              offset += 1;
+              runningStatus = statusByte;
+            }
+
+            if (statusByte === 0xff) {
+              const metaType = view.getUint8(offset);
+              offset += 1;
+              const metaLen = readVarLen(view, offset);
+              offset += metaLen.length;
+              if (metaType === 0x51 && metaLen.value === 3) {
+                const tempo =
+                  (view.getUint8(offset) << 16) |
+                  (view.getUint8(offset + 1) << 8) |
+                  view.getUint8(offset + 2);
+                tempos.push({ tick: absTicks, tempo });
+              }
+              offset += metaLen.value;
+              continue;
+            }
+
+            if (statusByte === 0xf0 || statusByte === 0xf7) {
+              const sysLen = readVarLen(view, offset);
+              offset += sysLen.length + sysLen.value;
+              continue;
+            }
+
+            const type = statusByte & 0xf0;
+            if (type === 0xc0 || type === 0xd0) {
+              offset += 1;
+            } else {
+              offset += 2;
+            }
+          }
+
+          if (absTicks > lastTick) lastTick = absTicks;
+        }
+
+        tempos.sort((a, b) => a.tick - b.tick);
+        return { ppq: division, tempos, lastTick };
+      }
+
+      function getMidiDurationSeconds(midiBytes) {
+        const timing = parseMidiTiming(midiBytes);
+        const ppq = timing.ppq;
+        const lastTick = timing.lastTick;
+        const tempos = timing.tempos.length ? timing.tempos : [{ tick: 0, tempo: 500000 }];
+        let tempo = 500000;
+        let timeSec = 0;
+        let prevTick = 0;
+        tempos.forEach((entry) => {
+          if (entry.tick > prevTick) {
+            timeSec += ((entry.tick - prevTick) / ppq) * (tempo / 1000000);
+            prevTick = entry.tick;
+          }
+          tempo = entry.tempo;
+        });
+        if (lastTick > prevTick) {
+          timeSec += ((lastTick - prevTick) / ppq) * (tempo / 1000000);
+        }
+        return timeSec;
+      }
+
+      function getMidiBeatCount(midiBytes) {
+        const timing = parseMidiTiming(midiBytes);
+        if (!timing.ppq) return 1;
+        const beats = timing.lastTick / timing.ppq;
+        return Math.max(1, Math.ceil(beats));
+      }
+
+      function getChordTicks(chords) {
+        if (!Array.isArray(chords)) return [];
+        return chords
+          .map((ch) => (ch && Number.isFinite(ch.tick) ? Math.max(0, Math.round(ch.tick)) : null))
+          .filter((tick) => tick !== null);
+      }
+
+      function normalizeChordTicks(chordTicks) {
+        if (!Array.isArray(chordTicks) || !chordTicks.length) return null;
+        const sorted = chordTicks.slice().sort((a, b) => a - b);
+        const unique = [];
+        sorted.forEach((tick) => {
+          if (!unique.length || unique[unique.length - 1] !== tick) {
+            unique.push(tick);
+          }
+        });
+        return unique.length > 1 ? unique : null;
+      }
+
+      function getNextChordTick(tick, chordTicks) {
+        if (!chordTicks || chordTicks.length < 2) return null;
+        let left = 0;
+        let right = chordTicks.length - 1;
+        let result = null;
+        while (left <= right) {
+          const mid = Math.floor((left + right) / 2);
+          const value = chordTicks[mid];
+          if (value > tick) {
+            result = value;
+            right = mid - 1;
+          } else {
+            left = mid + 1;
+          }
+        }
+        return result;
+      }
+
+      function parseSequInfo(sequBytes) {
+        const view = new DataView(sequBytes.buffer, sequBytes.byteOffset, sequBytes.byteLength);
+        const signature = readFourCC(view, 0);
+        if (signature !== "qSvE") {
+          throw new Error("Unexpected Sequ signature: " + signature);
+        }
+        const recordCount = Math.floor((sequBytes.length - 4) / 16);
+        const records = [];
+        for (let i = 0; i < recordCount; i++) {
+          const base = 4 + i * 16;
+          const w0 = view.getUint32(base, false);
+          const w1 = view.getUint32(base + 4, false);
+          const w2 = view.getUint32(base + 8, false);
+          const w3 = view.getUint32(base + 12, false);
+          records.push({ w0, w1, w2, w3 });
+        }
+        const headerRecords = records.slice(0, 2).map((rec) => [rec.w0, rec.w1, rec.w2, rec.w3]);
+        const posValues = [];
+        const descriptorPairs = [];
+        let currentPos = null;
+
+        records.forEach((rec) => {
+          if (rec.w0 === 0x32000000) {
+            const rawPos = rec.w1 >>> 16;
+            const cleanPos = rawPos & 0x7fff;
+            currentPos = cleanPos;
+            posValues.push(cleanPos);
+          }
+          if ((rec.w1 & 0xff) === 0xb2 && currentPos !== null) {
+            descriptorPairs.push({ pos: currentPos, time: rec.w3, code: rec.w0 });
+          }
+        });
+
+        let posBase = 0x96;
+        let posStep = null;
+        if (descriptorPairs.length) {
+          posBase = descriptorPairs[0].pos;
+          const diffCounts = new Map();
+          for (let i = 1; i < descriptorPairs.length; i++) {
+            const diff = descriptorPairs[i].pos - descriptorPairs[i - 1].pos;
+            if (diff > 0) {
+              diffCounts.set(diff, (diffCounts.get(diff) || 0) + 1);
+            }
+          }
+          if (diffCounts.size) {
+            let bestDiff = null;
+            let bestCount = -1;
+            diffCounts.forEach((count, diff) => {
+              if (count > bestCount) {
+                bestCount = count;
+                bestDiff = diff;
+              }
+            });
+            posStep = bestDiff;
+          }
+        } else if (posValues.length) {
+          const uniquePos = Array.from(new Set(posValues)).sort((a, b) => a - b);
+          posBase = uniquePos[0];
+          for (let i = 1; i < uniquePos.length; i++) {
+            const diff = uniquePos[i] - uniquePos[i - 1];
+            if (diff > 0 && (posStep === null || diff < posStep)) {
+              posStep = diff;
+            }
+          }
+        }
+        if (!posStep) posStep = 0x0f;
+
+        let timeBase = 0x8020b50a;
+        let timeScale = 0;
+        if (descriptorPairs.length) {
+          timeBase = descriptorPairs[0].time;
+          const basePos = descriptorPairs[0].pos;
+          const next = descriptorPairs.find((pair) => pair.time !== timeBase && pair.pos !== basePos);
+          if (next) {
+            timeScale = (next.time - timeBase) / (next.pos - basePos);
+          }
+        }
+        const timeCountsByCode = new Map();
+        descriptorPairs.forEach((pair) => {
+          if (!timeCountsByCode.has(pair.code)) {
+            timeCountsByCode.set(pair.code, new Map());
+          }
+          const codeMap = timeCountsByCode.get(pair.code);
+          codeMap.set(pair.time, (codeMap.get(pair.time) || 0) + 1);
+        });
+        const descriptorTimeByCode = new Map();
+        const descriptorTimeStable = new Set();
+        timeCountsByCode.forEach((timeMap, code) => {
+          let bestTime = null;
+          let bestCount = -1;
+          timeMap.forEach((count, time) => {
+            if (count > bestCount) {
+              bestCount = count;
+              bestTime = time;
+            }
+          });
+          if (bestTime !== null) {
+            descriptorTimeByCode.set(code, bestTime);
+            if (timeMap.size === 1) {
+              descriptorTimeStable.add(code);
+            }
+          }
+        });
+        return {
+          headerRecords,
+          posBase,
+          posStep,
+          timeBase,
+          timeScale,
+          descriptorTimeByCode,
+          descriptorTimeStable,
+          maxRecords: recordCount
+        };
+      }
+
+      function mapNotesToChordPositions(noteEvents, chords, sequInfo, ppq) {
+        if (!Array.isArray(noteEvents) || !noteEvents.length) return null;
+        if (!Array.isArray(chords) || !chords.length) return null;
+        const ticksPerPos = (4 * ppq) / sequInfo.posStep;
+        const chordPositions = chords
+          .map((ch) => ({
+            tick: Math.max(0, Math.round(ch.tick || 0)),
+            pos: sequInfo.posBase + Math.round((ch.tick || 0) / ticksPerPos)
+          }))
+          .sort((a, b) => a.tick - b.tick);
+        if (!chordPositions.length) return null;
+        const sortedNotes = noteEvents
+          .filter((ev) => ev && ev.on)
+          .slice()
+          .sort((a, b) => a.tick - b.tick);
+        if (!sortedNotes.length) return null;
+        const noteGroups = new Map();
+        let chordIndex = 0;
+        sortedNotes.forEach((ev) => {
+          while (
+            chordIndex + 1 < chordPositions.length &&
+            chordPositions[chordIndex + 1].tick <= ev.tick
+          ) {
+            chordIndex += 1;
+          }
+          const pos = chordPositions[chordIndex].pos;
+          if (!noteGroups.has(pos)) noteGroups.set(pos, new Set());
+          noteGroups.get(pos).add(ev.note & 0x7f);
+        });
+        const result = new Map();
+        noteGroups.forEach((set, pos) => {
+          const notes = Array.from(set.values()).sort((a, b) => a - b);
+          result.set(pos, notes);
+        });
+        return result;
+      }
+
+      function buildSequNoteRecordsFromMidi(noteEvents, sequInfo, ppq) {
+        if (!Array.isArray(noteEvents) || !noteEvents.length) return [];
+        const ticksPerPos = (4 * ppq) / sequInfo.posStep;
+        const events = noteEvents
+          .map((ev, idx) => ({ ...ev, order: idx }))
+          .sort((a, b) => (a.tick !== b.tick ? a.tick - b.tick : (a.on === b.on ? a.order - b.order : a.on ? -1 : 1)));
+        const stacks = new Map();
+        const pairs = [];
+        events.forEach((event) => {
+          const key = `${event.channel ?? 0}-${event.note}`;
+          if (event.on) {
+            if (!stacks.has(key)) stacks.set(key, []);
+            stacks.get(key).push(event.tick);
+          } else {
+            const stack = stacks.get(key);
+            if (stack && stack.length) {
+              const onTick = stack.pop();
+              pairs.push({ onTick, offTick: event.tick, note: event.note });
+            }
+          }
+        });
+        pairs.sort((a, b) => a.onTick - b.onTick);
+        const records = [];
+        pairs.forEach((pair) => {
+          const posOn = sequInfo.posBase + Math.round(pair.onTick / ticksPerPos);
+          const posVal = ((posOn & 0xffff) << 16) >>> 0;
+          const durationTicks = Math.max(1, pair.offTick - pair.onTick);
+          const durationPos = Math.max(1, Math.round(durationTicks / ticksPerPos));
+          const durationWord = (Math.min(durationPos, 0x7fff) & 0xffff) << 16;
+          const noteWord = ((pair.note & 0x7f) << 24) | 0x80;
+          records.push(makeSequRecord(0x90000000, posVal, 0x00009264, noteWord));
+          records.push(makeSequRecord(0x40000000, 0x00000089, 0x00000000, durationWord >>> 0));
+        });
+        return records;
+      }
+
+      function decodeBase64ToArrayBuffer(base64) {
+        const cleaned = base64.replace(/\s+/g, "");
+        const binary = atob(cleaned);
+        const bytes = new Uint8Array(binary.length);
+        for (let i = 0; i < binary.length; i++) {
+          bytes[i] = binary.charCodeAt(i);
+        }
+        return bytes.buffer;
+      }
+
+      async function fetchTemplateParts(parts) {
+        const buffers = await Promise.all(
+          parts.map(async (part) => {
+            const response = await fetch(part);
+            if (!response.ok) {
+              throw new Error(`Failed to fetch template part: ${part} (${response.status})`);
+            }
+            return new Uint8Array(await response.arrayBuffer());
+          })
+        );
+        const totalLength = buffers.reduce((sum, buf) => sum + buf.byteLength, 0);
+        const merged = new Uint8Array(totalLength);
+        let offset = 0;
+        buffers.forEach((buf) => {
+          merged.set(buf, offset);
+          offset += buf.byteLength;
+        });
+        return merged.buffer;
+      }
+
+      async function loadTemplateAiff() {
+        if (templateAiffBuffer && templateSequInfo) return;
+        if (TEMPLATE_AIFF_BASE64.trim()) {
+          const buffer = decodeBase64ToArrayBuffer(TEMPLATE_AIFF_BASE64);
+          setTemplateAiff(buffer);
+          return;
+        }
+        if (Array.isArray(TEMPLATE_AIFF_PARTS) && TEMPLATE_AIFF_PARTS.length) {
+          const buffer = await fetchTemplateParts(TEMPLATE_AIFF_PARTS);
+          setTemplateAiff(buffer);
+          return;
+        }
+        throw new Error("No template AIFF source configured.");
+      }
+
+      function buildSequChunk(chords, sequInfo, ppq, includeNotes, noteEvents, gateToNext, endTick) {
+        const records = [];
+        records.push(...sequInfo.headerRecords);
+        const ticksPerPos = (4 * ppq) / sequInfo.posStep;
+        let encodedCount = 0;
+        const useSequNotes = typeof includeNotes === "boolean" ? includeNotes : INCLUDE_SEQU_NOTES;
+        const sortedChords = Array.isArray(chords)
+          ? chords
+              .filter((ch) => ch && Number.isFinite(ch.tick))
+              .slice()
+              .sort((a, b) => a.tick - b.tick)
+          : [];
+        const chordPositions = sortedChords.map((chord) => ({
+          chord,
+          posClean: sequInfo.posBase + Math.round(chord.tick / ticksPerPos)
+        }));
+        let noteRecords = null;
+        if (useSequNotes && Array.isArray(noteEvents) && noteEvents.length) {
+          noteRecords = buildSequNoteRecordsFromMidi(noteEvents, sequInfo, ppq);
+          const maxRecords = sequInfo.maxRecords || Number.POSITIVE_INFINITY;
+          const estimated =
+            sequInfo.headerRecords.length +
+            chords.length * 4 +
+            (noteRecords.length || 0) +
+            1;
+          if (estimated > maxRecords) {
+            noteRecords = null;
+          }
+        }
+
+        const endPos = Number.isFinite(endTick)
+          ? sequInfo.posBase + Math.round(endTick / ticksPerPos)
+          : null;
+
+        chordPositions.forEach((entry, index) => {
+          const chord = entry.chord;
+          const parsed = parseChordName(chord.name);
+          if (!parsed) return;
+          encodedCount += 1;
+          const baseDescriptor = SEQU_DESCRIPTOR_CODES[parsed.quality] || SEQU_DESCRIPTOR_CODES[""];
+          const hasSlash = parsed.bassPc !== null && parsed.bassPc !== parsed.rootPc;
+          const descriptor = hasSlash
+            ? (SEQU_SLASH_CODES[parsed.quality] || baseDescriptor)
+            : baseDescriptor;
+          const prefix = DESCRIPTOR_PREFIX_OVERRIDES[parsed.quality] ?? 0x02;
+          const posClean = entry.posClean;
+          const posFlag = prefix === 0x03 ? 0x8000 : 0;
+          const posVal = ((posClean | posFlag) & 0xffff) << 16;
+          let timeWord = Math.round(
+            sequInfo.timeBase + (posClean - sequInfo.posBase) * sequInfo.timeScale
+          );
+          if (sequInfo.descriptorTimeByCode && sequInfo.descriptorTimeByCode.has(descriptor)) {
+            timeWord = sequInfo.descriptorTimeByCode.get(descriptor);
+          } else {
+            timeWord = sequInfo.timeBase;
+          }
+          const descriptorWord = (prefix << 24) | (parsed.rootPc << 16) | 0x00b2;
+
+          records.push(makeSequRecord(0x32000000, posVal, 0x00000000, 0x07000001));
+          records.push(makeSequRecord(0x00000000, 0x00000088, 0x00000000, 0x00000000));
+          records.push(makeSequRecord(0x70000000, posVal, 0x00000000, 0x67000001));
+          records.push(makeSequRecord(descriptor, descriptorWord, 0x00000000, timeWord));
+
+          if (useSequNotes && !noteRecords) {
+            const notes = buildChordNotes(parsed.rootPc, parsed.quality, parsed.bassPc);
+            let durationWord = SEQU_NOTE_OFF_WORD;
+            if (gateToNext) {
+              let nextPos = null;
+              if (index + 1 < chordPositions.length) {
+                nextPos = chordPositions[index + 1].posClean;
+              } else if (Number.isFinite(endPos) && endPos > posClean) {
+                nextPos = endPos;
+              }
+              if (Number.isFinite(nextPos) && nextPos > posClean) {
+                const durationPos = Math.max(1, nextPos - posClean);
+                durationWord = (Math.min(durationPos, 0x7fff) & 0xffff) << 16;
+              }
+            }
+            notes.forEach((note) => {
+              const noteWord = ((note & 0x7f) << 24) | 0x80;
+              records.push(makeSequRecord(0x90000000, posVal, 0x00009264, noteWord));
+              records.push(makeSequRecord(0x40000000, 0x00000089, 0x00000000, durationWord));
+            });
+          }
+        });
+
+        if (noteRecords) {
+          records.push(...noteRecords);
+        }
+
+        records.push(makeSequRecord(0xf1000000, 0xffffff3f, 0x00000000, 0x00000000));
+
+        const out = new Uint8Array(4 + records.length * 16);
+        out.set([0x71, 0x53, 0x76, 0x45], 0);
+        const view = new DataView(out.buffer);
+        records.forEach((record, idx) => {
+          const base = 4 + idx * 16;
+          writeUint32BE(view, base, record[0]);
+          writeUint32BE(view, base + 4, record[1]);
+          writeUint32BE(view, base + 8, record[2]);
+          writeUint32BE(view, base + 12, record[3]);
+        });
+        return { bytes: out, encodedCount };
+      }
+
+      function buildAiffWithSequ(templateBuffer, sequBytes, midiBytes) {
+        const view = new DataView(templateBuffer);
+        const formType = readFourCC(view, 8);
+        if (formType !== "AIFF") {
+          throw new Error("Template is not AIFF.");
+        }
+        const chunks = parseAiffChunks(templateBuffer);
+        const out = new Uint8Array(templateBuffer.slice(0));
+        const midiData = midiBytes
+          ? (midiBytes instanceof Uint8Array ? midiBytes : new Uint8Array(midiBytes))
+          : null;
+
+        const sequChunk = chunks.find((chunk) => chunk.id === "Sequ");
+        if (!sequChunk) {
+          throw new Error("Template Sequ chunk not found.");
+        }
+        if (sequBytes.length > sequChunk.size) {
+          throw new Error("Sequ data exceeds template chunk size.");
+        }
+        out.set(sequBytes, sequChunk.dataStart);
+        out.fill(0, sequChunk.dataStart + sequBytes.length, sequChunk.dataEnd);
+
+        if (midiData) {
+          const midiChunk = chunks.find((chunk) => chunk.id === ".mid");
+          if (!midiChunk) {
+            throw new Error("Template MIDI chunk not found.");
+          }
+          if (midiData.length > midiChunk.size) {
+            throw new Error("MIDI data exceeds template chunk size.");
+          }
+          out.set(midiData, midiChunk.dataStart);
+          out.fill(0, midiChunk.dataStart + midiData.length, midiChunk.dataEnd);
+        }
+
+        if (midiData) {
+          return trimAiffToMidi(out, chunks, midiData);
+        }
+        return out;
+      }
+
+      function trimAiffToMidi(outBytes, chunks, midiData) {
+        const buffer = outBytes.buffer.slice(outBytes.byteOffset, outBytes.byteOffset + outBytes.byteLength);
+        const view = new DataView(buffer);
+        const commChunk = chunks.find((chunk) => chunk.id === "COMM");
+        const ssndChunk = chunks.find((chunk) => chunk.id === "SSND");
+        const bascChunk = chunks.find((chunk) => chunk.id === "basc");
+        if (!commChunk || !ssndChunk) {
+          return outBytes;
+        }
+        if (ssndChunk.dataEnd !== buffer.byteLength) {
+          return outBytes;
+        }
+        const numChannels = view.getUint16(commChunk.dataStart, false);
+        const sampleFramesOffset = commChunk.dataStart + 2;
+        const sampleSize = view.getUint16(commChunk.dataStart + 6, false);
+        const sampleRate = readExtended80(view, commChunk.dataStart + 8);
+        if (!sampleRate || !numChannels || !sampleSize) {
+          return outBytes;
+        }
+
+        let durationSeconds = 0;
+        try {
+          durationSeconds = getMidiDurationSeconds(midiData);
+        } catch (err) {
+          return outBytes;
+        }
+        durationSeconds = Math.max(0, durationSeconds + 0.05);
+
+        const bytesPerSample = Math.max(1, Math.ceil(sampleSize / 8));
+        const bytesPerFrame = bytesPerSample * numChannels;
+        let targetFrames = Math.max(1, Math.ceil(durationSeconds * sampleRate));
+        let targetDataBytes = targetFrames * bytesPerFrame;
+
+        const offset = view.getUint32(ssndChunk.dataStart, false);
+        const availableDataBytes = ssndChunk.size - 8 - offset;
+        if (availableDataBytes <= 0) {
+          return outBytes;
+        }
+        if (targetDataBytes > availableDataBytes) {
+          targetDataBytes = availableDataBytes;
+          targetFrames = Math.floor(targetDataBytes / bytesPerFrame);
+        }
+        const newSsndSize = 8 + offset + targetDataBytes;
+        const newFileLength = ssndChunk.dataStart + newSsndSize;
+
+        view.setUint32(sampleFramesOffset, targetFrames >>> 0, false);
+        view.setUint32(ssndChunk.dataStart - 4, newSsndSize >>> 0, false);
+        view.setUint32(4, newFileLength - 8, false);
+
+        if (bascChunk && bascChunk.size >= 8) {
+          const beatCount = getMidiBeatCount(midiData);
+          view.setUint32(bascChunk.dataStart + 4, beatCount >>> 0, false);
+        }
+
+        return new Uint8Array(buffer.slice(0, newFileLength));
+      }
+
+      function validateAiffMidi(outputBytes) {
+        const bytes = outputBytes instanceof Uint8Array ? outputBytes : new Uint8Array(outputBytes);
+        const buffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+        const view = new DataView(buffer);
+        if (readFourCC(view, 0) !== "FORM") {
+          throw new Error("Output AIFF is invalid.");
+        }
+        const chunks = parseAiffChunks(buffer);
+        const midiChunk = chunks.find((chunk) => chunk.id === ".mid");
+        if (!midiChunk) {
+          throw new Error("Output AIFF is missing embedded MIDI.");
+        }
+        if (readFourCC(view, midiChunk.dataStart) !== "MThd") {
+          throw new Error("Embedded MIDI chunk is invalid.");
+        }
+        return midiChunk.size;
+      }
+
+      function getChordWindowTicks(ppq) {
+        return Math.max(1, Math.round(ppq * 0.75));
+      }
+
+      function detectChords(noteEvents, options, windowTicks) {
+        const activeCounts = new Map();
+        let idx = 0;
+        let lastChord = null;
+        const chords = [];
+        const windowSpan = Math.max(1, Math.round(windowTicks || 1));
+        let windowStart = null;
+        let windowEnd = null;
+        let windowHadNoteOn = false;
+
+        const finalizeWindow = () => {
+          if (windowStart === null || !windowHadNoteOn) return;
+          const activeNotes = Array.from(activeCounts.keys()).sort((a, b) => a - b);
+          const chordName = identifyChord(activeNotes, options);
+          if (chordName !== lastChord && (chordName || options.emitNC)) {
+            chords.push({ tick: windowStart, name: chordName || "N.C." });
+            lastChord = chordName;
+          }
+        };
+
+        while (idx < noteEvents.length) {
+          const tick = noteEvents[idx].tick;
+
+          if (windowStart !== null && tick > windowEnd) {
+            finalizeWindow();
+            windowStart = null;
+            windowEnd = null;
+            windowHadNoteOn = false;
+          }
+
+          let tickHadNoteOn = false;
+          while (idx < noteEvents.length && noteEvents[idx].tick === tick) {
+            const ev = noteEvents[idx];
+            const current = activeCounts.get(ev.note) || 0;
+            if (ev.on) {
+              activeCounts.set(ev.note, current + 1);
+              tickHadNoteOn = true;
+            } else if (current > 1) {
+              activeCounts.set(ev.note, current - 1);
+            } else {
+              activeCounts.delete(ev.note);
+            }
+            idx += 1;
+          }
+
+          if (windowStart === null) {
+            if (tickHadNoteOn) {
+              windowStart = tick;
+              windowEnd = tick + windowSpan;
+              windowHadNoteOn = true;
+            }
+          } else if (tickHadNoteOn) {
+            windowHadNoteOn = true;
+          }
+        }
+
+        finalizeWindow();
+        return chords;
+      }
+
+      function identifyChord(activeNotes, options) {
+        if (activeNotes.length < options.minNotes) return null;
+        const pcs = Array.from(new Set(activeNotes.map((n) => n % 12)));
+        if (pcs.length < options.minNotes) return null;
+
+        const pcSet = new Set(pcs);
+        let best = null;
+
+        for (let root = 0; root < 12; root++) {
+          const intervals = pcs.map((pc) => (pc - root + 12) % 12);
+          const intervalSet = new Set(intervals);
+          for (const pattern of CHORD_PATTERNS) {
+            const patternSet = new Set(pattern.intervals);
+            let matches = true;
+            patternSet.forEach((val) => {
+              if (!intervalSet.has(val)) matches = false;
+            });
+            if (!matches) continue;
+            const extraCount = intervalSet.size - patternSet.size;
+            if (!options.allowExtensions && extraCount > 0) continue;
+            let score = pattern.priority * 10 - extraCount;
+            if (!pcSet.has(root)) score -= 2;
+            if (!best || score > best.score) {
+              best = { root, pattern, score };
+            }
+          }
+        }
+
+        if (!best) return null;
+        const names = options.preferFlats ? NOTE_NAMES_FLAT : NOTE_NAMES_SHARP;
+        let name = names[best.root] + best.pattern.name;
+        if (options.useSlash && activeNotes.length > 0) {
+          const bassPc = activeNotes[0] % 12;
+          if (bassPc !== best.root) {
+            name += "/" + names[bassPc];
+          }
+        }
+        return name;
+      }
+
+      function writeVarLen(value) {
+        const bytes = [value & 0x7f];
+        let v = value >>> 7;
+        while (v > 0) {
+          bytes.unshift((v & 0x7f) | 0x80);
+          v >>>= 7;
+        }
+        return bytes;
+      }
+
+      function shortenMidiNotes(midiBytes, factor, chordTicks, gateMode) {
+        const bytes = midiBytes instanceof Uint8Array ? midiBytes : new Uint8Array(midiBytes);
+        const buffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+        const view = new DataView(buffer);
+        let offset = 0;
+        const gateTicks = normalizeChordTicks(chordTicks);
+
+        function readStr(len) {
+          let s = "";
+          for (let i = 0; i < len; i++) {
+            s += String.fromCharCode(view.getUint8(offset + i));
+          }
+          offset += len;
+          return s;
+        }
+
+        function readU32() {
+          const v = view.getUint32(offset, false);
+          offset += 4;
+          return v;
+        }
+
+        function readU16() {
+          const v = view.getUint16(offset, false);
+          offset += 2;
+          return v;
+        }
+
+        if (readStr(4) !== "MThd") {
+          throw new Error("Not a MIDI file");
+        }
+        const headerLen = readU32();
+        const format = readU16();
+        const numTracks = readU16();
+        const division = readU16();
+        if (division & 0x8000) {
+          throw new Error("SMPTE time format is not supported.");
+        }
+        offset += Math.max(0, headerLen - 6);
+
+        const tracks = [];
+
+        for (let t = 0; t < numTracks; t++) {
+          if (readStr(4) !== "MTrk") {
+            throw new Error("Invalid MIDI track header");
+          }
+          const trackLen = readU32();
+          const trackEnd = offset + trackLen;
+          let absTicks = 0;
+          let runningStatus = null;
+          let order = 0;
+          const events = [];
+
+          while (offset < trackEnd) {
+            const { value: delta, length } = readVarLen(view, offset);
+            offset += length;
+            absTicks += delta;
+            let statusByte = view.getUint8(offset);
+            if (statusByte < 0x80 && runningStatus !== null) {
+              statusByte = runningStatus;
+            } else {
+              offset += 1;
+              runningStatus = statusByte;
+            }
+
+            if (statusByte === 0xff) {
+              const metaType = view.getUint8(offset);
+              offset += 1;
+              const metaLen = readVarLen(view, offset);
+              offset += metaLen.length;
+              const data = new Uint8Array(buffer.slice(offset, offset + metaLen.value));
+              offset += metaLen.value;
+              const bytesOut = [
+                0xff,
+                metaType,
+                ...writeVarLen(metaLen.value),
+                ...Array.from(data)
+              ];
+              events.push({ tick: absTicks, order: order++, bytes: bytesOut });
+              continue;
+            }
+
+            if (statusByte === 0xf0 || statusByte === 0xf7) {
+              const sysLen = readVarLen(view, offset);
+              offset += sysLen.length;
+              const data = new Uint8Array(buffer.slice(offset, offset + sysLen.value));
+              offset += sysLen.value;
+              const bytesOut = [statusByte, ...writeVarLen(sysLen.value), ...Array.from(data)];
+              events.push({ tick: absTicks, order: order++, bytes: bytesOut });
+              continue;
+            }
+
+            const type = statusByte & 0xf0;
+            const channel = statusByte & 0x0f;
+            if (type === 0xc0 || type === 0xd0) {
+              const data0 = view.getUint8(offset);
+              offset += 1;
+              events.push({
+                tick: absTicks,
+                order: order++,
+                bytes: [statusByte, data0 & 0x7f]
+              });
+              continue;
+            }
+
+            const data0 = view.getUint8(offset);
+            const data1 = view.getUint8(offset + 1);
+            offset += 2;
+            const bytesOut = [statusByte, data0 & 0x7f, data1 & 0x7f];
+            const isNote = type === 0x90 || type === 0x80;
+            const isOn = type === 0x90 && data1 > 0;
+            events.push({
+              tick: absTicks,
+              order: order++,
+              bytes: bytesOut,
+              note: isNote ? data0 : null,
+              channel: isNote ? channel : null,
+              isOn: isNote ? isOn : null,
+              isNote
+            });
+          }
+
+          const stacks = new Map();
+          events.forEach((event) => {
+            if (!event.isNote) return;
+            const key = `${event.channel}-${event.note}`;
+            if (event.isOn) {
+              if (!stacks.has(key)) stacks.set(key, []);
+              stacks.get(key).push(event.tick);
+            } else {
+              const stack = stacks.get(key);
+              if (stack && stack.length) {
+                const onTick = stack.pop();
+                const duration = event.tick - onTick;
+                if (duration > 0) {
+                  const newDuration = Math.max(1, Math.round(duration * factor));
+                  let offTick = onTick + newDuration;
+                  if (gateTicks) {
+                    const gateTick = getNextChordTick(onTick, gateTicks);
+                    if (gateTick !== null && gateTick > onTick) {
+                      const clampTick = Math.max(onTick + 1, gateTick - 1);
+                      if (gateMode === "toNext") {
+                        offTick = clampTick;
+                      } else {
+                        const span = gateTick - onTick;
+                        const spanDuration = Math.max(1, Math.round(span * factor));
+                        offTick = Math.min(onTick + spanDuration, offTick, clampTick);
+                      }
+                    }
+                  }
+                  event.tick = offTick;
+                }
+              }
+            }
+          });
+
+          const trimTick = getTrimTickFromEvents(events);
+          const endEvents = events.filter(isEndOfTrackEvent);
+          let activeEvents = events.filter((event) => !isEndOfTrackEvent(event));
+          if (trimTick !== null) {
+            activeEvents = activeEvents.filter((event) => event.tick <= trimTick);
+          }
+          activeEvents.sort((a, b) => (a.tick !== b.tick ? a.tick - b.tick : a.order - b.order));
+          const maxTick = trimTick !== null ? trimTick : (activeEvents.length ? activeEvents[activeEvents.length - 1].tick : 0);
+          if (!endEvents.length) {
+            endEvents.push({ tick: maxTick, order: Number.MAX_SAFE_INTEGER, bytes: [0xff, 0x2f, 0x00] });
+          } else {
+            endEvents.forEach((event, idx) => {
+              event.tick = maxTick;
+              event.order = Number.MAX_SAFE_INTEGER + idx;
+            });
+          }
+          const finalEvents = activeEvents.concat(endEvents);
+
+          let lastTick = 0;
+          const trackBytes = [];
+          finalEvents.forEach((event) => {
+            const delta = Math.max(0, event.tick - lastTick);
+            trackBytes.push(...writeVarLen(delta), ...event.bytes);
+            lastTick = event.tick;
+          });
+          tracks.push(Uint8Array.from(trackBytes));
+        }
+
+        const totalLength =
+          14 + tracks.reduce((sum, track) => sum + 8 + track.length, 0);
+        const out = new Uint8Array(totalLength);
+        const outView = new DataView(out.buffer);
+        out.set([0x4d, 0x54, 0x68, 0x64], 0);
+        writeUint32BE(outView, 4, 6);
+        out[8] = (format >> 8) & 0xff;
+        out[9] = format & 0xff;
+        out[10] = (numTracks >> 8) & 0xff;
+        out[11] = numTracks & 0xff;
+        out[12] = (division >> 8) & 0xff;
+        out[13] = division & 0xff;
+        let cursor = 14;
+        tracks.forEach((track) => {
+          out.set([0x4d, 0x54, 0x72, 0x6b], cursor);
+          writeUint32BE(outView, cursor + 4, track.length);
+          out.set(track, cursor + 8);
+          cursor += 8 + track.length;
+        });
+        return out;
+      }
+
+      function isEndOfTrackEvent(event) {
+        return !!(
+          event &&
+          event.bytes &&
+          event.bytes.length === 3 &&
+          event.bytes[0] === 0xff &&
+          event.bytes[1] === 0x2f
+        );
+      }
+
+      function getTrimTickFromEvents(events) {
+        let lastNoteOn = null;
+        let lastNoteOff = null;
+        let lastAny = null;
+        events.forEach((event) => {
+          if (event && typeof event.tick === "number") {
+            if (!isEndOfTrackEvent(event)) {
+              if (lastAny === null || event.tick > lastAny) lastAny = event.tick;
+            }
+            if (event.isNote) {
+              if (event.isOn) {
+                if (lastNoteOn === null || event.tick > lastNoteOn) lastNoteOn = event.tick;
+              } else {
+                if (lastNoteOff === null || event.tick > lastNoteOff) lastNoteOff = event.tick;
+              }
+            }
+          }
+        });
+        if (lastNoteOff !== null) return lastNoteOff;
+        if (lastNoteOn !== null) return lastNoteOn;
+        return lastAny;
+      }
+
+      function isMidiBytes(data) {
+        if (!data) return false;
+        const bytes = data instanceof Uint8Array ? data : new Uint8Array(data);
+        if (bytes.length < 4) return false;
+        return bytes[0] === 0x4d && bytes[1] === 0x54 && bytes[2] === 0x68 && bytes[3] === 0x64;
+      }
+
+      function buildMidiFile(noteEvents, ppq, bpm) {
+        const events = noteEvents.map((ev) => {
+          const channel = ev.channel ?? 0;
+          const status = (ev.on ? 0x90 : 0x80) | (channel & 0x0f);
+          const velocity = ev.on ? Math.max(1, Math.min(127, ev.velocity || 96)) : 0;
+          return { tick: ev.tick, isOn: ev.on, bytes: [status, ev.note & 0x7f, velocity] };
+        });
+
+        events.sort((a, b) => {
+          if (a.tick !== b.tick) return a.tick - b.tick;
+          if (a.isOn === b.isOn) return 0;
+          return a.isOn ? 1 : -1;
+        });
+
+        const track = [];
+        const tempo = Math.max(1, Math.round(60000000 / (bpm || 120)));
+        track.push(...writeVarLen(0), 0xff, 0x51, 0x03, (tempo >> 16) & 0xff, (tempo >> 8) & 0xff, tempo & 0xff);
+        track.push(...writeVarLen(0), 0xff, 0x58, 0x04, 0x04, 0x02, 0x18, 0x08);
+        const name = "Logic Capture";
+        track.push(...writeVarLen(0), 0xff, 0x03, name.length, ...Array.from(name).map((ch) => ch.charCodeAt(0)));
+
+        let lastTick = 0;
+        events.forEach((ev) => {
+          const delta = Math.max(0, ev.tick - lastTick);
+          track.push(...writeVarLen(delta), ...ev.bytes);
+          lastTick = ev.tick;
+        });
+        track.push(...writeVarLen(0), 0xff, 0x2f, 0x00);
+
+        const totalLength = 14 + 8 + track.length;
+        const out = new Uint8Array(totalLength);
+        const view = new DataView(out.buffer);
+        out.set([0x4d, 0x54, 0x68, 0x64], 0);
+        writeUint32BE(view, 4, 6);
+        out[8] = 0x00;
+        out[9] = 0x00;
+        out[10] = 0x00;
+        out[11] = 0x01;
+        out[12] = (ppq >> 8) & 0xff;
+        out[13] = ppq & 0xff;
+        out.set([0x4d, 0x54, 0x72, 0x6b], 14);
+        writeUint32BE(view, 18, track.length);
+        out.set(track, 22);
+        return out;
+      }
+
+      function buildMidiFileFromMessages(messages, ppq, bpm, startTime, factor) {
+        const ticksPerMs = (ppq * bpm) / 60000;
+        const events = [];
+
+        messages.forEach((msg, index) => {
+          const status = msg.status;
+          if (status >= 0xf0) return;
+          const type = status & 0xf0;
+          const data = msg.data || [];
+          let bytes = null;
+          if (type === 0xc0 || type === 0xd0) {
+            if (data.length < 1) return;
+            bytes = [status, data[0] & 0x7f];
+          } else if (type >= 0x80 && type <= 0xe0) {
+            if (data.length < 2) return;
+            bytes = [status, data[0] & 0x7f, data[1] & 0x7f];
+          }
+          if (!bytes) return;
+          events.push({
+            tick: ticksFromTime(msg.time, startTime, ticksPerMs),
+            order: index,
+            bytes,
+            status,
+            isNote: type === 0x90 || type === 0x80,
+            note: type === 0x90 || type === 0x80 ? data[0] : null,
+            channel: status & 0x0f,
+            isOn: type === 0x90 && data.length >= 2 ? data[1] > 0 : false
+          });
+        });
+
+        if (factor && factor !== 1) {
+          const stacks = new Map();
+          events.forEach((event) => {
+            if (!event.isNote) return;
+            const key = `${event.channel}-${event.note}`;
+            if (event.isOn) {
+              if (!stacks.has(key)) stacks.set(key, []);
+              stacks.get(key).push(event.tick);
+            } else {
+              const stack = stacks.get(key);
+              if (stack && stack.length) {
+                const onTick = stack.pop();
+                const duration = event.tick - onTick;
+                if (duration > 0) {
+                  const newDuration = Math.max(1, Math.round(duration * factor));
+                  event.tick = onTick + newDuration;
+                }
+              }
+            }
+          });
+        }
+
+        events.sort((a, b) => {
+          if (a.tick !== b.tick) return a.tick - b.tick;
+          return a.order - b.order;
+        });
+
+        const trimTick = getTrimTickFromEvents(events);
+        const trimmedEvents = trimTick === null ? events : events.filter((event) => event.tick <= trimTick);
+
+        const track = [];
+        const tempo = Math.max(1, Math.round(60000000 / (bpm || 120)));
+        track.push(...writeVarLen(0), 0xff, 0x51, 0x03, (tempo >> 16) & 0xff, (tempo >> 8) & 0xff, tempo & 0xff);
+        track.push(...writeVarLen(0), 0xff, 0x58, 0x04, 0x04, 0x02, 0x18, 0x08);
+        const name = "Logic Capture";
+        track.push(...writeVarLen(0), 0xff, 0x03, name.length, ...Array.from(name).map((ch) => ch.charCodeAt(0)));
+
+        let lastTick = 0;
+        trimmedEvents.forEach((ev) => {
+          const delta = Math.max(0, ev.tick - lastTick);
+          track.push(...writeVarLen(delta), ...ev.bytes);
+          lastTick = ev.tick;
+        });
+        if (trimTick !== null && trimTick > lastTick) {
+          track.push(...writeVarLen(trimTick - lastTick));
+        }
+        track.push(...writeVarLen(0), 0xff, 0x2f, 0x00);
+
+        const totalLength = 14 + 8 + track.length;
+        const out = new Uint8Array(totalLength);
+        const view = new DataView(out.buffer);
+        out.set([0x4d, 0x54, 0x68, 0x64], 0);
+        writeUint32BE(view, 4, 6);
+        out[8] = 0x00;
+        out[9] = 0x00;
+        out[10] = 0x00;
+        out[11] = 0x01;
+        out[12] = (ppq >> 8) & 0xff;
+        out[13] = ppq & 0xff;
+        out.set([0x4d, 0x54, 0x72, 0x6b], 14);
+        writeUint32BE(view, 18, track.length);
+        out.set(track, 22);
+        return out;
+      }
+
+      function ticksFromTime(time, startTime, ticksPerMs) {
+        if (startTime === null) return 0;
+        return Math.max(0, Math.round((time - startTime) * ticksPerMs));
+      }
+
+      function buildRecordedNoteEvents(messages, options, startTime, ticksPerMs) {
+        const noteEvents = [];
+        messages.forEach((msg) => {
+          const statusType = msg.status & 0xf0;
+          const channel = msg.status & 0x0f;
+          if (options.ignoreDrums && channel === 9) return;
+          if (statusType === 0x90 || statusType === 0x80) {
+            const note = msg.data[0];
+            const velocity = msg.data[1] || 0;
+            const isOn = statusType === 0x90 && velocity > 0;
+            const isOff = statusType === 0x80 || (statusType === 0x90 && velocity === 0);
+            if (isOn || isOff) {
+              noteEvents.push({
+                tick: ticksFromTime(msg.time, startTime, ticksPerMs),
+                note,
+                on: isOn,
+                velocity,
+                channel
+              });
+            }
+          }
+        });
+        noteEvents.sort((a, b) => {
+          if (a.tick !== b.tick) return a.tick - b.tick;
+          if (a.on === b.on) return 0;
+          return a.on ? -1 : 1;
+        });
+        return noteEvents;
+      }
+
+      async function buildAiffFromRecording(messages, chordOptions, listenOptions) {
+        if (!messages.length) {
+          throw new Error("No MIDI messages recorded.");
+        }
+
+        const startTime = recordStartTime ?? messages[0].time;
+        const bpm = listenOptions.bpm;
+        const ppq = listenOptions.ppq;
+        const ticksPerMs = (ppq * bpm) / 60000;
+        const noteEvents = buildRecordedNoteEvents(messages, chordOptions, startTime, ticksPerMs);
+        const windowTicks = getChordWindowTicks(ppq);
+        const chords = detectChords(noteEvents, chordOptions, windowTicks);
+        const preserveOriginal = shouldPreserveOriginalMidi();
+        const gateToNext = !preserveOriginal && chordOptions.gateToNext;
+        const rawMidiBytes = buildMidiFileFromMessages(messages, ppq, bpm, startTime, 1);
+        const midiBytes = preserveOriginal
+          ? rawMidiBytes
+          : shortenMidiNotes(
+              rawMidiBytes,
+              NOTE_LENGTH_FACTOR,
+              getChordTicks(chords),
+              gateToNext ? "toNext" : null
+            );
+        const includeSequNotes = !preserveOriginal;
+        const aiffResult = await buildAiffFromChords(
+          chords,
+          ppq,
+          midiBytes,
+          includeSequNotes,
+          null,
+          gateToNext
+        );
+        return { outputBytes: aiffResult.outputBytes, chords, bpm, encodedCount: aiffResult.encodedCount };
+      }
+
+      async function buildAiffFromChords(chords, ppq, midiBytes, includeSequNotes, noteEvents, gateToNext) {
+        await loadTemplateAiff();
+        if (!templateAiffBuffer || !templateSequInfo) {
+          throw new Error("Template AIFF is not loaded.");
+        }
+        let endTick = null;
+        if (gateToNext && midiBytes) {
+          try {
+            endTick = parseMidiTiming(midiBytes).lastTick;
+          } catch (err) {
+            endTick = null;
+          }
+        }
+        const sequResult = buildSequChunk(
+          chords,
+          templateSequInfo,
+          ppq,
+          includeSequNotes,
+          noteEvents,
+          gateToNext,
+          endTick
+        );
+        if (!sequResult.encodedCount) {
+          throw new Error("No supported chords detected for AIFF encoding.");
+        }
+        if (midiBytes && !isMidiBytes(midiBytes)) {
+          throw new Error("Embedded MIDI is invalid.");
+        }
+        const outputBytes = buildAiffWithSequ(templateAiffBuffer, sequResult.bytes, midiBytes);
+        if (midiBytes) {
+          validateAiffMidi(outputBytes);
+        }
+        return { outputBytes, encodedCount: sequResult.encodedCount };
+      }
+
+      async function handleMidiFile(file) {
+        resetLog();
+        if (!file) {
+          logLine("Select a MIDI file to convert.");
+          return;
+        }
+        clearOutput();
+        logLine("Reading MIDI: " + file.name);
+        const options = getOptions();
+
+        try {
+          const buffer = await file.arrayBuffer();
+          const midiInfo = parseMidiNoteEvents(buffer, options);
+          logLine("Tracks: " + midiInfo.numTracks + ", PPQ: " + midiInfo.ppq);
+          logLine("Note events: " + midiInfo.noteEvents.length);
+          const windowTicks = getChordWindowTicks(midiInfo.ppq);
+          const chords = detectChords(midiInfo.noteEvents, options, windowTicks);
+          logLine("Detected chords: " + chords.length);
+          const preserveOriginal = shouldPreserveOriginalMidi();
+          const gateToNext = !preserveOriginal && options.gateToNext;
+          const rawMidiBytes = new Uint8Array(buffer);
+          const midiBytes = preserveOriginal
+            ? rawMidiBytes
+            : shortenMidiNotes(
+                rawMidiBytes,
+                NOTE_LENGTH_FACTOR,
+                getChordTicks(chords),
+                gateToNext ? "toNext" : null
+              );
+          const includeSequNotes = !preserveOriginal;
+          const aiffResult = await buildAiffFromChords(
+            chords,
+            midiInfo.ppq,
+            midiBytes,
+            includeSequNotes,
+            null,
+            gateToNext
+          );
+          const outName = buildOutputNames(chords);
+          setOutput(
+            outName,
+            aiffResult.outputBytes,
+            "MIDI conversion (AIFF with chord track + embedded MIDI), chords encoded: " + aiffResult.encodedCount
+          );
+          logLine("Output ready: " + outName.downloadName);
+        } catch (err) {
+          logLine("Error: " + err.message);
+        }
+      }
+
+
+      function getOptions() {
+        return {
+          minNotes: parseInt(document.getElementById("min-notes").value, 10),
+          ignoreDrums: document.getElementById("ignore-drums").checked,
+          preferFlats: document.getElementById("prefer-flats").checked,
+          useSlash: document.getElementById("use-slash").checked,
+          allowExtensions: document.getElementById("allow-extensions").checked,
+          emitNC: document.getElementById("emit-nc").checked,
+          gateToNext: document.getElementById("gate-to-next").checked
+        };
+      }
+
+      function shouldPreserveOriginalMidi() {
+        const checkbox = document.getElementById("preserve-midi");
+        return !!(checkbox && checkbox.checked);
+      }
+
+      function setOutput(fileNames, bytes, summary) {
+        if (outputBlobUrl) URL.revokeObjectURL(outputBlobUrl);
+        outputBlob = new Blob([bytes], { type: "audio/aiff" });
+        outputBlobUrl = URL.createObjectURL(outputBlob);
+        const displayName = typeof fileNames === "string" ? fileNames : fileNames.displayName;
+        const downloadName = typeof fileNames === "string" ? fileNames : fileNames.downloadName;
+        outputFileName = downloadName;
+
+        downloadBtn.disabled = false;
+        outputName.textContent = displayName;
+        summaryEl.textContent = summary;
+      }
+
+      function clearOutput() {
+        if (outputBlobUrl) URL.revokeObjectURL(outputBlobUrl);
+        outputBlobUrl = null;
+        outputBlob = null;
+        outputFileName = null;
+        downloadBtn.disabled = true;
+        outputName.textContent = "No output yet";
+        summaryEl.textContent = "";
+      }
+
+      function buildOutputNames(chords) {
+        const names = chords.length ? chords.map((chord) => chord.name) : ["no-chords"];
+        const raw = names.join(",");
+        const cleaned = raw
+          .replace(/\s+/g, "")
+          .replace(/[\\/]+/g, "-")
+          .replace(/[^a-z0-9,#b\-_.]/gi, "");
+        const base = cleaned || "chords";
+        return { displayName: raw || "chords", downloadName: base + ".chords.aif" };
+      }
+
+      function updateListenButtons() {
+        const hasInput = !!(midiAccess && midiInputSelect.value);
+        listenToggleBtn.disabled = !hasInput;
+        listenToggleBtn.textContent = isListening ? "Done Listening" : "Start Listening";
+      }
+
+      function triggerDownload() {
+        if (!outputBlobUrl || !outputFileName) return;
+        const link = document.createElement("a");
+        link.href = outputBlobUrl;
+        link.download = outputFileName;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+      }
+
+      function setTemplateAiff(buffer) {
+        templateAiffBuffer = buffer;
+        const chunks = parseAiffChunks(templateAiffBuffer);
+        const sequChunk = chunks.find((chunk) => chunk.id === "Sequ");
+        if (!sequChunk) {
+          throw new Error("Sequ chunk not found in template AIFF.");
+        }
+        const sequBytes = new Uint8Array(
+          templateAiffBuffer.slice(sequChunk.dataStart, sequChunk.dataEnd)
+        );
+        templateSequInfo = parseSequInfo(sequBytes);
+      }
+
+      function pickDefaultInput(inputs) {
+        if (!inputs.length) return "";
+        const priority = [
+          "Logic Pro Virtual Out",
+          "Logic Pro",
+          "IAC",
+          "Bus",
+          "Virtual",
+          "Loop",
+          "Driver"
+        ];
+        for (const needle of priority) {
+          const found = inputs.find((input) =>
+            (input.name || "").toLowerCase().includes(needle.toLowerCase())
+          );
+          if (found) return found.id;
+        }
+        return inputs[0].id;
+      }
+
+      function populateMidiInputs() {
+        midiInputSelect.innerHTML = "";
+        if (!midiAccess) {
+          const opt = document.createElement("option");
+          opt.textContent = "Enable MIDI to list inputs";
+          opt.value = "";
+          midiInputSelect.appendChild(opt);
+          updateListenButtons();
+          return;
+        }
+
+        const inputs = Array.from(midiAccess.inputs.values());
+        if (!inputs.length) {
+          const opt = document.createElement("option");
+          opt.textContent = "No MIDI inputs detected";
+          opt.value = "";
+          midiInputSelect.appendChild(opt);
+          updateListenButtons();
+          return;
+        }
+
+        const currentId = midiInputSelect.value;
+        inputs.forEach((input) => {
+          const opt = document.createElement("option");
+          opt.value = input.id;
+          opt.textContent = input.name || "MIDI Input";
+          midiInputSelect.appendChild(opt);
+        });
+
+        if (currentId && midiAccess.inputs.has(currentId)) {
+          midiInputSelect.value = currentId;
+        } else {
+          midiInputSelect.value = pickDefaultInput(inputs);
+        }
+        activeInput = midiAccess.inputs.get(midiInputSelect.value) || null;
+        updateListenButtons();
+      }
+
+      async function enableMidi(fromAuto) {
+        if (!fromAuto) resetLog();
+        if (!navigator.requestMIDIAccess) {
+          logLine("Web MIDI is not supported in this browser.");
+          return;
+        }
+        try {
+          if (fromAuto) {
+            setListenStatus("Requesting MIDI access...");
+          }
+          midiAccess = await navigator.requestMIDIAccess({ sysex: false });
+          midiAccess.onstatechange = populateMidiInputs;
+          populateMidiInputs();
+          logLine("MIDI access granted.");
+          setListenStatus("Not listening");
+        } catch (err) {
+          logLine("MIDI access denied: " + err.message);
+          if (fromAuto) {
+            logLine("Click Enable MIDI to grant access.");
+          }
+          setListenStatus("Not listening");
+        }
+      }
+
+      function handleMidiMessage(event) {
+        if (!isListening) return;
+        const data = event.data;
+        const status = data[0];
+        const time = event.timeStamp;
+
+        if (status === 0xfa) {
+          recordStartTime = time;
+          recordStopTime = null;
+          clockTimes = [];
+          logLine("MIDI Start received.");
+          return;
+        }
+        if (status === 0xfb) {
+          if (recordStartTime === null) recordStartTime = time;
+          logLine("MIDI Continue received.");
+          return;
+        }
+        if (status === 0xfc) {
+          recordStopTime = time;
+          logLine("MIDI Stop received.");
+          return;
+        }
+        if (status === 0xf8) {
+          if (recordStartTime !== null) {
+            clockTimes.push(time);
+          }
+          return;
+        }
+
+        if (status >= 0x80 && status <= 0xef) {
+          const statusType = status & 0xf0;
+          const dataLen = statusType === 0xc0 || statusType === 0xd0 ? 1 : 2;
+          const msgData = Array.from(data.slice(1, 1 + dataLen));
+          recordedMessages.push({ time, status, data: msgData });
+          if (recordStartTime === null) {
+            recordStartTime = time;
+          }
+
+          if (statusType === 0x90 || statusType === 0x80) {
+            const note = msgData[0];
+            const velocity = msgData[1] || 0;
+            const isNoteOn = statusType === 0x90 && velocity > 0;
+            const isNoteOff = statusType === 0x80 || (statusType === 0x90 && velocity === 0);
+            const channel = status & 0x0f;
+            const options = getOptions();
+            if (!(options.ignoreDrums && channel === 9)) {
+              const current = activeNoteCounts.get(note) || 0;
+              if (isNoteOn) {
+                activeNoteCounts.set(note, current + 1);
+              } else if (isNoteOff) {
+                if (current > 1) activeNoteCounts.set(note, current - 1);
+                else activeNoteCounts.delete(note);
+              }
+            }
+            updateLiveChordDisplay();
+          }
+        }
+      }
+
+      function startListening() {
+        resetLog();
+        if (!midiAccess) {
+          logLine("Enable MIDI first.");
+          return;
+        }
+        const inputId = midiInputSelect.value;
+        const input = midiAccess.inputs.get(inputId);
+        if (!input) {
+          logLine("Select a MIDI input.");
+          return;
+        }
+        clearOutput();
+        activeInput = input;
+        recordedMessages = [];
+        clockTimes = [];
+        recordStartTime = null;
+        recordStopTime = null;
+        activeNoteCounts = new Map();
+        lastLiveChord = null;
+        liveChordEl.textContent = "—";
+        isListening = true;
+        activeInput.onmidimessage = handleMidiMessage;
+        setListenStatus("Listening...");
+        updateListenButtons();
+        logLine("Listening on: " + (activeInput.name || "MIDI Input"));
+        logLine("Press Play in Logic, then stop, then click Done Listening.");
+      }
+
+      async function stopListening() {
+        if (!isListening) return;
+        isListening = false;
+        if (activeInput) {
+          activeInput.onmidimessage = null;
+        }
+        setListenStatus("Processing...");
+        updateListenButtons();
+        liveChordEl.textContent = "—";
+
+        const options = getOptions();
+        const listenOptions = getListenOptions();
+
+        const derivedBpm = listenOptions.useClock ? estimateBpmFromClock(clockTimes) : null;
+        if (derivedBpm) {
+          listenOptions.bpm = derivedBpm;
+          logLine("Using MIDI clock tempo: " + derivedBpm.toFixed(2) + " BPM.");
+        } else {
+          logLine("Using BPM: " + listenOptions.bpm + ".");
+        }
+
+        try {
+          const { outputBytes, chords, bpm, encodedCount } = await buildAiffFromRecording(
+            recordedMessages,
+            options,
+            listenOptions
+          );
+          const outName = buildOutputNames(chords);
+          setOutput(
+            outName,
+            outputBytes,
+            "Live capture (AIFF with chord track + embedded MIDI), BPM " +
+              bpm.toFixed(2) +
+              ", chords encoded: " +
+              encodedCount
+          );
+          logLine("Output ready: " + outName.downloadName);
+          logLine("Chords detected: " + chords.length + ", encoded: " + encodedCount);
+        } catch (err) {
+          logLine("Error: " + err.message);
+        } finally {
+          setListenStatus("Not listening");
+        }
+      }
+
+      enableMidiBtn.addEventListener("click", () => {
+        enableMidi();
+      });
+      downloadBtn.addEventListener("click", () => {
+        triggerDownload();
+      });
+      midiConvertBtn.addEventListener("click", () => {
+        handleMidiFile(midiFileInput.files[0]);
+      });
+      midiInputSelect.addEventListener("change", () => {
+        if (midiAccess) {
+          activeInput = midiAccess.inputs.get(midiInputSelect.value) || null;
+        }
+        updateListenButtons();
+      });
+      listenToggleBtn.addEventListener("click", () => {
+        if (isListening) {
+          stopListening();
+        } else {
+          startListening();
+        }
+      });
+      updateListenButtons();
+      enableMidi(true);
+      loadTemplateAiff().catch((err) => {
+        logLine("Template AIFF error: " + err.message);
+      });
+    </script>
+  </body>
+</html>

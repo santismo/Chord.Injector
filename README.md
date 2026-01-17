@@ -1,7 +1,7 @@
 # Chord.Injector
 
 ## What this does
-Chord.Injector listens to MIDI coming from Logic Pro (or converts an uploaded MIDI file), detects chords, injects Logic Pro chord-track metadata into an AIFF container, and exports an `.aif` you can drag back into Logic.
+Chord.Injector listens to MIDI coming from Logic Pro (or converts an uploaded MIDI file), detects chords, injects Logic Pro chord-track metadata into an AIFF container, and exports an `.aif` you can drag back into Logic to see your chords on the Chord Track..
 
 The exported AIFF contains:
 - A Sequ chunk with chord-track events for Logic.

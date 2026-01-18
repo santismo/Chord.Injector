@@ -2,9 +2,9 @@
 
 ## One-line install (edit the URL placeholders)
 ```bash
-curl -L "https://github.com/YOUR_USER/YOUR_REPO/archive/refs/heads/main.zip" -o chord-injector.zip \
+curl -L "https://github.com/santismo/Chord.Injector/archive/refs/heads/main.zip" -o chord-injector.zip \
   && unzip -q chord-injector.zip \
-  && cd "YOUR_REPO-main/chord.injector automation github" \
+  && cd "Chord.Injector-main/chord.injector automation github" \
   && bash ./install.sh
 ```
 

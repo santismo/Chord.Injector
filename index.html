@@ -299,6 +299,10 @@
               <input id="trim-leading" type="checkbox" checked>
               Trim leading silence (align first chord to bar 1)
             </label>
+            <label>
+              <input id="preserve-length" type="checkbox" checked>
+              Keep full MIDI length (include trailing silence)
+            </label>
           </div>
           <div class="group">
             <strong>Detection</strong>
@@ -310,6 +314,18 @@
                 <option value="4">4</option>
               </select>
             </label>
+            <label>
+              Chord window scale
+              <input
+                id="chord-window-factor"
+                type="range"
+                min="0.3"
+                max="2"
+                step="0.05"
+                value="1"
+              >
+            </label>
+            <div class="pill">Window: <span id="chord-window-factor-value">1.00</span>x</div>
             <label>
               <input id="ignore-drums" type="checkbox" checked>
               Ignore drums (MIDI channel 10)
@@ -361,6 +377,9 @@
       const midiFileInput = document.getElementById("midi-file");
       const midiConvertBtn = document.getElementById("midi-convert");
       const liveChordEl = document.getElementById("live-chord");
+      const preserveLengthInput = document.getElementById("preserve-length");
+      const chordWindowFactorInput = document.getElementById("chord-window-factor");
+      const chordWindowFactorValue = document.getElementById("chord-window-factor-value");
 
       const ALL_INPUTS_VALUE = "__all__";
 
@@ -7955,12 +7974,27 @@ AI6cBw9QAIfiB295AIQkB9S8AINaCD9TU05EAAAADgAAAAAAAAAAAAAAAAAA
         listenStatus.textContent = text;
       }
 
+      function getChordWindowFactor() {
+        if (!chordWindowFactorInput) return 1;
+        const value = parseFloat(chordWindowFactorInput.value);
+        return Number.isFinite(value) ? value : 1;
+      }
+
+      function updateChordWindowFactorLabel() {
+        if (!chordWindowFactorInput || !chordWindowFactorValue) return;
+        chordWindowFactorValue.textContent = parseFloat(chordWindowFactorInput.value || "1").toFixed(2);
+      }
+
       function getListenOptions() {
         return {
           bpm: parseFloat(listenBpmInput.value) || 120,
           ppq: parseInt(listenPpqInput.value, 10) || 480,
           useClock: listenUseClockInput.checked
         };
+      }
+
+      function shouldPreserveFullLength() {
+        return !!(preserveLengthInput && preserveLengthInput.checked) || shouldPreserveOriginalMidi();
       }
 
       function estimateBpmFromClock(times) {
@@ -8700,7 +8734,13 @@ AI6cBw9QAIfiB295AIQkB9S8AINaCD9TU05EAAAADgAAAAAAAAAAAAAAAAAA
         records.push(...sequInfo.headerRecords);
         const ticksPerPos = (4 * ppq) / sequInfo.posStep;
         let encodedCount = 0;
-        let useSequNotes = typeof includeNotes === "boolean" ? includeNotes : INCLUDE_SEQU_NOTES;
+        const includeMode = includeNotes;
+        let useSequNotes =
+          typeof includeMode === "boolean"
+            ? includeMode
+            : includeMode === "original"
+              ? true
+              : INCLUDE_SEQU_NOTES;
         const sortedChords = Array.isArray(chords)
           ? chords
               .filter((ch) => ch && Number.isFinite(ch.tick))
@@ -8731,7 +8771,8 @@ AI6cBw9QAIfiB295AIQkB9S8AINaCD9TU05EAAAADgAAAAAAAAAAAAAAAAAA
             noteRecords = null;
           }
         }
-        let useBlockNotes = useSequNotes && !noteRecords;
+        const allowBlockNotes = includeMode !== "original";
+        let useBlockNotes = allowBlockNotes && useSequNotes && !noteRecords;
         if (useBlockNotes) {
           const maxRecords = sequInfo.maxRecords || Number.POSITIVE_INFINITY;
           let estimated = sequInfo.headerRecords.length + chordPositions.length * 4 + 1;
@@ -8851,16 +8892,16 @@ AI6cBw9QAIfiB295AIQkB9S8AINaCD9TU05EAAAADgAAAAAAAAAAAAAAAAAA
         return { bytes: out, encodedCount, notesIncluded };
       }
 
-      function buildAiffWithSequ(templateBuffer, sequBytes, midiBytes) {
+      function buildAiffWithSequ(templateBuffer, sequBytes, midiBytes, forceExactDuration) {
         const view = new DataView(templateBuffer);
         const formType = readFourCC(view, 8);
         if (formType !== "AIFF") {
           throw new Error("Template is not AIFF.");
         }
-        return buildAiffFromTemplate(templateBuffer, sequBytes, midiBytes);
+        return buildAiffFromTemplate(templateBuffer, sequBytes, midiBytes, forceExactDuration);
       }
 
-      function buildAiffFromTemplate(templateBuffer, sequBytes, midiBytes) {
+      function buildAiffFromTemplate(templateBuffer, sequBytes, midiBytes, forceExactDuration) {
         const view = new DataView(templateBuffer);
         const chunks = parseAiffChunks(templateBuffer);
         const commChunk = chunks.find((chunk) => chunk.id === "COMM");
@@ -8886,8 +8927,12 @@ AI6cBw9QAIfiB295AIQkB9S8AINaCD9TU05EAAAADgAAAAAAAAAAAAAAAAAA
         if (midiData && sampleRate) {
           try {
             let durationSeconds = getMidiDurationSeconds(midiData);
-            durationSeconds =
-              Math.max(0, durationSeconds * AUDIO_LENGTH_MULTIPLIER + AUDIO_PADDING_SECONDS);
+            if (forceExactDuration) {
+              durationSeconds = Math.max(0, durationSeconds + 0.05);
+            } else {
+              durationSeconds =
+                Math.max(0, durationSeconds * AUDIO_LENGTH_MULTIPLIER + AUDIO_PADDING_SECONDS);
+            }
             targetFrames = Math.max(1, Math.ceil(durationSeconds * sampleRate));
             if (!ALLOW_EXTEND_SSND) {
               targetFrames = Math.min(targetFrames, templateFrames);
@@ -9080,9 +9125,10 @@ AI6cBw9QAIfiB295AIQkB9S8AINaCD9TU05EAAAADgAAAAAAAAAAAAAAAAAA
         const mid = Math.floor(gaps.length / 2);
         const median = gaps.length % 2 ? gaps[mid] : Math.round((gaps[mid - 1] + gaps[mid]) / 2);
         const minWindow = Math.max(1, Math.round((ppq || 480) * 0.15));
-        const maxWindow = base;
+        const maxWindow = Math.round(base * 2);
         const adaptive = Math.round(median * 1.5);
-        return Math.max(minWindow, Math.min(maxWindow, adaptive));
+        const scaled = Math.round(adaptive * getChordWindowFactor());
+        return Math.max(minWindow, Math.min(maxWindow, scaled));
       }
 
       function detectChords(noteEvents, options, windowTicks) {
@@ -10046,6 +10092,7 @@ AI6cBw9QAIfiB295AIQkB9S8AINaCD9TU05EAAAADgAAAAAAAAAAAAAAAAAA
         const forceEndTick = Number.isFinite(lastChordTick)
           ? Math.max(lastChordTick, originalEndTick || 0)
           : originalEndTick;
+        const forceExactDuration = shouldPreserveFullLength() || preserveOriginal;
         const midiBytes = preserveOriginal
           ? rawMidiBytes
           : shortenMidiNotes(
@@ -10055,14 +10102,17 @@ AI6cBw9QAIfiB295AIQkB9S8AINaCD9TU05EAAAADgAAAAAAAAAAAAAAAAAA
               gateToNext ? "toNext" : null,
               forceEndTick
             );
-        const includeSequNotes = !preserveOriginal;
+        const includeSequNotes = preserveOriginal ? "original" : true;
+        const sequNoteEvents = preserveOriginal ? noteEvents : null;
         const aiffResult = await buildAiffFromChords(
           chords,
           ppq,
           midiBytes,
           includeSequNotes,
-          null,
-          gateToNext
+          sequNoteEvents,
+          gateToNext,
+          preserveOriginal,
+          forceExactDuration
         );
         return {
           outputBytes: aiffResult.outputBytes,
@@ -10073,7 +10123,16 @@ AI6cBw9QAIfiB295AIQkB9S8AINaCD9TU05EAAAADgAAAAAAAAAAAAAAAAAA
         };
       }
 
-      async function buildAiffFromChords(chords, ppq, midiBytes, includeSequNotes, noteEvents, gateToNext) {
+      async function buildAiffFromChords(
+        chords,
+        ppq,
+        midiBytes,
+        includeSequNotes,
+        noteEvents,
+        gateToNext,
+        preserveOriginal,
+        forceExactDuration
+      ) {
         await loadTemplateAiff();
         if (!templateAiffBuffer || !templateSequInfo) {
           throw new Error("Template AIFF is not loaded.");
@@ -10098,21 +10157,28 @@ AI6cBw9QAIfiB295AIQkB9S8AINaCD9TU05EAAAADgAAAAAAAAAAAAAAAAAA
         if (!sequResult.encodedCount) {
           throw new Error("No supported chords detected for AIFF encoding.");
         }
-        const normalizedMidi = midiBytes ? normalizeMidiBytes(midiBytes) : null;
+        const normalizedMidi = midiBytes
+          ? (preserveOriginal ? (midiBytes instanceof Uint8Array ? midiBytes : new Uint8Array(midiBytes)) : normalizeMidiBytes(midiBytes))
+          : null;
         if (normalizedMidi && !isMidiBytes(normalizedMidi)) {
           throw new Error("Embedded MIDI is invalid.");
         }
         let paddedMidi = normalizedMidi;
         let paddedSequ = sequResult.bytes;
         if (PAD_TO_TEMPLATE_SIZES) {
-          if (paddedMidi && templateMidiSize && paddedMidi.length <= templateMidiSize) {
+          if (!preserveOriginal && paddedMidi && templateMidiSize && paddedMidi.length <= templateMidiSize) {
             paddedMidi = padMidiToSize(paddedMidi, templateMidiSize);
           }
           if (templateSequSize && paddedSequ.length <= templateSequSize) {
             paddedSequ = padSequToSize(paddedSequ, templateSequSize);
           }
         }
-        const outputBytes = buildAiffWithSequ(templateAiffBuffer, paddedSequ, paddedMidi);
+        const outputBytes = buildAiffWithSequ(
+          templateAiffBuffer,
+          paddedSequ,
+          paddedMidi,
+          !!forceExactDuration
+        );
         if (paddedMidi) {
           validateAiffMidi(outputBytes);
         }
@@ -10142,13 +10208,16 @@ AI6cBw9QAIfiB295AIQkB9S8AINaCD9TU05EAAAADgAAAAAAAAAAAAAAAAAA
           const chords = detectChords(midiInfo.noteEvents, options, windowTicks);
           logLine(formatChordList(chords));
           logLine("Detected chords: " + chords.length);
-          const trimLeading = document.getElementById("trim-leading").checked;
+          const preserveOriginal = shouldPreserveOriginalMidi();
+          const trimLeading = document.getElementById("trim-leading").checked && !preserveOriginal;
           const firstNoteTick = trimLeading ? getFirstNoteOnTick(midiInfo.noteEvents) : null;
           const shiftTicks = Number.isFinite(firstNoteTick) && firstNoteTick > 0 ? firstNoteTick : 0;
+          if (preserveOriginal && document.getElementById("trim-leading").checked) {
+            logLine("Preserve original MIDI: ignoring trim-leading.");
+          }
           if (shiftTicks) {
             logLine("Trimmed leading silence: " + shiftTicks + " ticks.");
           }
-          const preserveOriginal = shouldPreserveOriginalMidi();
           const gateToNext = !preserveOriginal && options.gateToNext;
           const rawMidiBytes = new Uint8Array(buffer);
           const originalEndTick = !preserveOriginal ? getLastNoteTick(midiInfo.noteEvents) : null;
@@ -10156,6 +10225,19 @@ AI6cBw9QAIfiB295AIQkB9S8AINaCD9TU05EAAAADgAAAAAAAAAAAAAAAAAA
           const forceEndTick = Number.isFinite(lastChordTick)
             ? Math.max(lastChordTick, originalEndTick || 0)
             : originalEndTick;
+          let fullEndTick = null;
+          if (!preserveOriginal && shouldPreserveFullLength()) {
+            try {
+              const timing = parseMidiTiming(rawMidiBytes);
+              fullEndTick = Math.max(0, timing.lastTick);
+            } catch (err) {
+              fullEndTick = null;
+            }
+          }
+          const finalEndTick = Number.isFinite(fullEndTick)
+            ? Math.max(forceEndTick || 0, fullEndTick)
+            : forceEndTick;
+          const forceExactDuration = shouldPreserveFullLength() || preserveOriginal;
           const midiBytes = preserveOriginal
             ? (shiftTicks ? shiftMidiTicks(rawMidiBytes, shiftTicks) : rawMidiBytes)
             : shortenMidiNotes(
@@ -10163,20 +10245,23 @@ AI6cBw9QAIfiB295AIQkB9S8AINaCD9TU05EAAAADgAAAAAAAAAAAAAAAAAA
                 NOTE_LENGTH_FACTOR,
                 getChordTicks(chords),
                 gateToNext ? "toNext" : null,
-                forceEndTick,
+                finalEndTick,
                 shiftTicks
               );
-          const includeSequNotes = !preserveOriginal;
+          const includeSequNotes = preserveOriginal ? "original" : true;
+          const sequNoteEvents = preserveOriginal ? midiInfo.noteEvents : null;
           const aiffResult = await buildAiffFromChords(
             shiftTicks ? shiftChordTicks(chords, shiftTicks) : chords,
             midiInfo.ppq,
             midiBytes,
             includeSequNotes,
-            null,
-            gateToNext
+            sequNoteEvents,
+            gateToNext,
+            preserveOriginal,
+            forceExactDuration
           );
           if (!aiffResult.notesIncluded && includeSequNotes) {
-            logLine("Sequ chord notes skipped to fit template size.");
+            logLine("Sequ notes skipped to fit template size.");
           }
           const outName = buildOutputNames(chords);
           setOutput(
@@ -10507,8 +10592,8 @@ AI6cBw9QAIfiB295AIQkB9S8AINaCD9TU05EAAAADgAAAAAAAAAAAAAAAAAA
           );
           logLine("Output ready: " + outName.downloadName);
           logLine("Chords detected: " + chords.length + ", encoded: " + encodedCount);
-          if (!notesIncluded && !shouldPreserveOriginalMidi()) {
-            logLine("Sequ chord notes skipped to fit template size.");
+          if (!notesIncluded) {
+            logLine("Sequ notes skipped to fit template size.");
           }
         } catch (err) {
           logLine("Error: " + err.message);
@@ -10526,6 +10611,10 @@ AI6cBw9QAIfiB295AIQkB9S8AINaCD9TU05EAAAADgAAAAAAAAAAAAAAAAAA
       midiConvertBtn.addEventListener("click", () => {
         handleMidiFile(midiFileInput.files[0]);
       });
+      if (chordWindowFactorInput) {
+        chordWindowFactorInput.addEventListener("input", updateChordWindowFactorLabel);
+        updateChordWindowFactorLabel();
+      }
       midiInputSelect.addEventListener("change", () => {
         if (midiAccess) {
           activeInputs = resolveSelectedInputs();

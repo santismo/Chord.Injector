@@ -295,6 +295,10 @@
               <input id="listen-use-clock" type="checkbox" checked>
               Use MIDI clock if present
             </label>
+            <label>
+              <input id="trim-leading" type="checkbox" checked>
+              Trim leading silence (align first chord to bar 1)
+            </label>
           </div>
           <div class="group">
             <strong>Detection</strong>
@@ -358,13 +362,18 @@
       const midiConvertBtn = document.getElementById("midi-convert");
       const liveChordEl = document.getElementById("live-chord");
 
+      const ALL_INPUTS_VALUE = "__all__";
+
       let outputBlobUrl = null;
       let outputFileName = null;
       let outputBlob = null;
       let templateAiffBuffer = null;
       let templateSequInfo = null;
+      let templateMidiSize = null;
+      let templateSequSize = null;
       let midiAccess = null;
       let activeInput = null;
+      let activeInputs = [];
       let isListening = false;
       let recordStartTime = null;
       let recordStopTime = null;
@@ -373,8 +382,9 @@
       let activeNoteCounts = new Map();
       let lastLiveChord = null;
 
-      const TEMPLATE_AIFF_BASE64 = ``;
       const TEMPLATE_AIFF_PARTS = ["template.part1", "template.part2"];
+      const TEMPLATE_AIFF_URL = "";
+      const TEMPLATE_AIFF_BASE64 = "";
 
       const NOTE_NAMES_SHARP = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
       const NOTE_NAMES_FLAT = ["C", "Db", "D", "Eb", "E", "F", "Gb", "G", "Ab", "A", "Bb", "B"];
@@ -513,6 +523,14 @@
 
       const DESCRIPTOR_PREFIX_OVERRIDES = {
         "6(9,11)b5": 0x03
+      };
+
+      const SEQU_QUALITY_FALLBACKS = {
+        "7(9,#11,13)": "7",
+        "6(9,11)b5": "6",
+        "dim7(b9)": "dim",
+        "maj7(9)": "maj7",
+        m7: "m"
       };
 
       const NOTE_LENGTH_FACTOR = 0.25;
@@ -823,6 +841,12 @@
         view.setUint32(offset, value >>> 0, false);
       }
 
+      function writeFourCC(buffer, offset, value) {
+        for (let i = 0; i < 4; i++) {
+          buffer[offset + i] = value.charCodeAt(i) || 0;
+        }
+      }
+
       function readFourCC(view, offset) {
         return String.fromCharCode(
           view.getUint8(offset),
@@ -912,13 +936,16 @@
             const { value: delta, length } = readVarLen(view, offset);
             offset += length;
             absTicks += delta;
-            let statusByte = view.getUint8(offset);
-            if (statusByte < 0x80 && runningStatus !== null) {
-              statusByte = runningStatus;
-            } else {
-              offset += 1;
-              runningStatus = statusByte;
+          let statusByte = view.getUint8(offset);
+          if (statusByte < 0x80) {
+            if (runningStatus === null) {
+              throw new Error("Running status without prior status");
             }
+            statusByte = runningStatus;
+          } else {
+            offset += 1;
+            runningStatus = statusByte < 0xf0 ? statusByte : null;
+          }
 
             if (statusByte === 0xff) {
               const metaType = view.getUint8(offset);
@@ -1220,26 +1247,6 @@
         return bytes.buffer;
       }
 
-      async function fetchTemplateParts(parts) {
-        const buffers = await Promise.all(
-          parts.map(async (part) => {
-            const response = await fetch(part);
-            if (!response.ok) {
-              throw new Error(`Failed to fetch template part: ${part} (${response.status})`);
-            }
-            return new Uint8Array(await response.arrayBuffer());
-          })
-        );
-        const totalLength = buffers.reduce((sum, buf) => sum + buf.byteLength, 0);
-        const merged = new Uint8Array(totalLength);
-        let offset = 0;
-        buffers.forEach((buf) => {
-          merged.set(buf, offset);
-          offset += buf.byteLength;
-        });
-        return merged.buffer;
-      }
-
       async function loadTemplateAiff() {
         if (templateAiffBuffer && templateSequInfo) return;
         if (TEMPLATE_AIFF_BASE64.trim()) {
@@ -1248,11 +1255,33 @@
           return;
         }
         if (Array.isArray(TEMPLATE_AIFF_PARTS) && TEMPLATE_AIFF_PARTS.length) {
-          const buffer = await fetchTemplateParts(TEMPLATE_AIFF_PARTS);
-          setTemplateAiff(buffer);
+          const responses = await Promise.all(
+            TEMPLATE_AIFF_PARTS.map((part) => fetch(part, { cache: "no-store" }))
+          );
+          const failed = responses.find((res) => !res.ok);
+          if (failed) {
+            throw new Error("Failed to fetch template AIFF part (" + failed.status + ").");
+          }
+          const buffers = await Promise.all(responses.map((res) => res.arrayBuffer()));
+          const totalLength = buffers.reduce((sum, buf) => sum + buf.byteLength, 0);
+          const merged = new Uint8Array(totalLength);
+          let offset = 0;
+          buffers.forEach((buf) => {
+            merged.set(new Uint8Array(buf), offset);
+            offset += buf.byteLength;
+          });
+          setTemplateAiff(merged.buffer);
           return;
         }
-        throw new Error("No template AIFF source configured.");
+        if (!TEMPLATE_AIFF_URL) {
+          throw new Error("Template AIFF is not configured.");
+        }
+        const response = await fetch(TEMPLATE_AIFF_URL, { cache: "no-store" });
+        if (!response.ok) {
+          throw new Error("Failed to fetch template AIFF (" + response.status + ").");
+        }
+        const buffer = await response.arrayBuffer();
+        setTemplateAiff(buffer);
       }
 
       function buildSequChunk(chords, sequInfo, ppq, includeNotes, noteEvents, gateToNext, endTick) {
@@ -1294,12 +1323,34 @@
           const parsed = parseChordName(chord.name);
           if (!parsed) return;
           encodedCount += 1;
-          const baseDescriptor = SEQU_DESCRIPTOR_CODES[parsed.quality] || SEQU_DESCRIPTOR_CODES[""];
-          const hasSlash = parsed.bassPc !== null && parsed.bassPc !== parsed.rootPc;
-          const descriptor = hasSlash
-            ? (SEQU_SLASH_CODES[parsed.quality] || baseDescriptor)
+          let sequQuality = parsed.quality;
+          let baseDescriptor = SEQU_DESCRIPTOR_CODES[sequQuality] || SEQU_DESCRIPTOR_CODES[""];
+          let hasSlash = parsed.bassPc !== null && parsed.bassPc !== parsed.rootPc;
+          let descriptor = hasSlash
+            ? (SEQU_SLASH_CODES[sequQuality] || baseDescriptor)
             : baseDescriptor;
-          const prefix = DESCRIPTOR_PREFIX_OVERRIDES[parsed.quality] ?? 0x02;
+          let prefix = DESCRIPTOR_PREFIX_OVERRIDES[sequQuality] ?? 0x02;
+          if (sequInfo.descriptorTimeByCode && !sequInfo.descriptorTimeByCode.has(descriptor)) {
+            const fallbackQuality = SEQU_QUALITY_FALLBACKS[sequQuality];
+            if (fallbackQuality) {
+              sequQuality = fallbackQuality;
+              baseDescriptor = SEQU_DESCRIPTOR_CODES[sequQuality] || SEQU_DESCRIPTOR_CODES[""];
+              hasSlash = parsed.bassPc !== null && parsed.bassPc !== parsed.rootPc;
+              descriptor = hasSlash
+                ? (SEQU_SLASH_CODES[sequQuality] || baseDescriptor)
+                : baseDescriptor;
+              prefix = DESCRIPTOR_PREFIX_OVERRIDES[sequQuality] ?? 0x02;
+            }
+            if (!sequInfo.descriptorTimeByCode.has(descriptor)) {
+              sequQuality = "";
+              baseDescriptor = SEQU_DESCRIPTOR_CODES[""];
+              hasSlash = parsed.bassPc !== null && parsed.bassPc !== parsed.rootPc;
+              descriptor = hasSlash
+                ? (SEQU_SLASH_CODES[""] || baseDescriptor)
+                : baseDescriptor;
+              prefix = DESCRIPTOR_PREFIX_OVERRIDES[""] ?? 0x02;
+            }
+          }
           const posClean = entry.posClean;
           const posFlag = prefix === 0x03 ? 0x8000 : 0;
           const posVal = ((posClean | posFlag) & 0xffff) << 16;
@@ -1367,33 +1418,26 @@
           throw new Error("Template is not AIFF.");
         }
         const chunks = parseAiffChunks(templateBuffer);
-        const out = new Uint8Array(templateBuffer.slice(0));
         const midiData = midiBytes
           ? (midiBytes instanceof Uint8Array ? midiBytes : new Uint8Array(midiBytes))
           : null;
-
+        const out = new Uint8Array(templateBuffer.slice(0));
         const sequChunk = chunks.find((chunk) => chunk.id === "Sequ");
-        if (!sequChunk) {
-          throw new Error("Template Sequ chunk not found.");
-        }
-        if (sequBytes.length > sequChunk.size) {
-          throw new Error("Sequ data exceeds template chunk size.");
-        }
-        out.set(sequBytes, sequChunk.dataStart);
-        out.fill(0, sequChunk.dataStart + sequBytes.length, sequChunk.dataEnd);
-
-        if (midiData) {
-          const midiChunk = chunks.find((chunk) => chunk.id === ".mid");
-          if (!midiChunk) {
-            throw new Error("Template MIDI chunk not found.");
+        if (sequChunk && sequBytes) {
+          if (sequBytes.length > sequChunk.size) {
+            throw new Error("Sequ chunk is larger than the template allows.");
           }
+          out.fill(0, sequChunk.dataStart, sequChunk.dataEnd);
+          out.set(sequBytes, sequChunk.dataStart);
+        }
+        const midiChunk = chunks.find((chunk) => chunk.id === ".mid");
+        if (midiChunk && midiData) {
           if (midiData.length > midiChunk.size) {
-            throw new Error("MIDI data exceeds template chunk size.");
+            throw new Error("MIDI chunk is larger than the template allows.");
           }
+          out.fill(0, midiChunk.dataStart, midiChunk.dataEnd);
           out.set(midiData, midiChunk.dataStart);
-          out.fill(0, midiChunk.dataStart + midiData.length, midiChunk.dataEnd);
         }
-
         if (midiData) {
           return trimAiffToMidi(out, chunks, midiData);
         }
@@ -1406,6 +1450,7 @@
         const commChunk = chunks.find((chunk) => chunk.id === "COMM");
         const ssndChunk = chunks.find((chunk) => chunk.id === "SSND");
         const bascChunk = chunks.find((chunk) => chunk.id === "basc");
+        const lgwvChunk = chunks.find((chunk) => chunk.id === "LGWV");
         if (!commChunk || !ssndChunk) {
           return outBytes;
         }
@@ -1448,6 +1493,10 @@
         view.setUint32(sampleFramesOffset, targetFrames >>> 0, false);
         view.setUint32(ssndChunk.dataStart - 4, newSsndSize >>> 0, false);
         view.setUint32(4, newFileLength - 8, false);
+
+        if (lgwvChunk && lgwvChunk.size >= 4) {
+          view.setUint32(lgwvChunk.dataStart, targetFrames >>> 0, false);
+        }
 
         if (bascChunk && bascChunk.size >= 8) {
           const beatCount = getMidiBeatCount(midiData);
@@ -1589,12 +1638,323 @@
         return bytes;
       }
 
-      function shortenMidiNotes(midiBytes, factor, chordTicks, gateMode, forceEndTick) {
+      function padMidiToSize(midiBytes, targetSize) {
+        if (!midiBytes || !Number.isFinite(targetSize)) return midiBytes;
+        const bytes = midiBytes instanceof Uint8Array ? midiBytes : new Uint8Array(midiBytes);
+        if (bytes.length >= targetSize) return bytes;
+        if (
+          bytes.length < 14 ||
+          bytes[0] !== 0x4d ||
+          bytes[1] !== 0x54 ||
+          bytes[2] !== 0x68 ||
+          bytes[3] !== 0x64
+        ) {
+          return bytes;
+        }
+        const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+        const headerLen = view.getUint32(4, false);
+        const numTracks = view.getUint16(10, false);
+        let offset = 8 + headerLen;
+        let lastTrackHeader = null;
+        let lastTrackStart = null;
+        let lastTrackEnd = null;
+        let lastTrackLen = null;
+        for (let t = 0; t < numTracks; t++) {
+          if (
+            bytes[offset] !== 0x4d ||
+            bytes[offset + 1] !== 0x54 ||
+            bytes[offset + 2] !== 0x72 ||
+            bytes[offset + 3] !== 0x6b
+          ) {
+            return bytes;
+          }
+          const len = view.getUint32(offset + 4, false);
+          const trackStart = offset + 8;
+          const trackEnd = trackStart + len;
+          lastTrackHeader = offset;
+          lastTrackStart = trackStart;
+          lastTrackEnd = trackEnd;
+          lastTrackLen = len;
+          offset = trackEnd;
+        }
+        if (lastTrackHeader === null || lastTrackStart === null || lastTrackEnd === null) {
+          return bytes;
+        }
+        function findEotOffset(trackBytes, trackStart, trackEnd) {
+          let idx = trackStart;
+          let running = null;
+          while (idx < trackEnd) {
+            const eventOffset = idx;
+            let sawDeltaEnd = false;
+            while (idx < trackEnd) {
+              const byte = trackBytes[idx++];
+              if ((byte & 0x80) === 0) {
+                sawDeltaEnd = true;
+                break;
+              }
+            }
+            if (!sawDeltaEnd || idx >= trackEnd) break;
+            let status = trackBytes[idx];
+            if (status < 0x80) {
+              if (running === null) break;
+              status = running;
+            } else {
+              idx += 1;
+              running = status;
+            }
+            if (status === 0xff) {
+              if (idx >= trackEnd) break;
+              const type = trackBytes[idx++];
+              let length = 0;
+              let sawLenEnd = false;
+              while (idx < trackEnd) {
+                const byte = trackBytes[idx++];
+                length = (length << 7) | (byte & 0x7f);
+                if ((byte & 0x80) === 0) {
+                  sawLenEnd = true;
+                  break;
+                }
+              }
+              if (!sawLenEnd) break;
+              if (type === 0x2f) {
+                return eventOffset;
+              }
+              idx += length;
+              continue;
+            }
+            if (status === 0xf0 || status === 0xf7) {
+              let length = 0;
+              let sawLenEnd = false;
+              while (idx < trackEnd) {
+                const byte = trackBytes[idx++];
+                length = (length << 7) | (byte & 0x7f);
+                if ((byte & 0x80) === 0) {
+                  sawLenEnd = true;
+                  break;
+                }
+              }
+              if (!sawLenEnd) break;
+              idx += length;
+              continue;
+            }
+            const type = status & 0xf0;
+            idx += type === 0xc0 || type === 0xd0 ? 1 : 2;
+          }
+          return trackEnd;
+        }
+
+        const extra = targetSize - bytes.length;
+        if (extra < 4) return bytes;
+        let payloadSize = null;
+        for (let size = 1; size <= 4; size++) {
+          const candidate = extra - (1 + 2 + size);
+          if (candidate >= 0 && candidate < (1 << (7 * size))) {
+            payloadSize = candidate;
+            break;
+          }
+        }
+        if (payloadSize === null) return bytes;
+        const metaLen = writeVarLen(payloadSize);
+        const filler = new Uint8Array(1 + 2 + metaLen.length + payloadSize);
+        filler[0] = 0x00;
+        filler[1] = 0xff;
+        filler[2] = 0x7f;
+        filler.set(metaLen, 3);
+        const insertAt = findEotOffset(bytes, lastTrackStart, lastTrackEnd);
+        if (insertAt < lastTrackStart || insertAt > lastTrackEnd) return bytes;
+        const out = new Uint8Array(targetSize);
+        out.set(bytes.slice(0, insertAt), 0);
+        out.set(filler, insertAt);
+        out.set(bytes.slice(insertAt), insertAt + filler.length);
+        const outView = new DataView(out.buffer);
+        writeUint32BE(outView, lastTrackHeader + 4, (lastTrackLen || 0) + extra);
+        return out;
+      }
+
+      function padSequToSize(sequBytes, targetSize) {
+        if (!sequBytes || !Number.isFinite(targetSize)) return sequBytes;
+        const bytes = sequBytes instanceof Uint8Array ? sequBytes : new Uint8Array(sequBytes);
+        if (bytes.length >= targetSize) return bytes;
+        const out = new Uint8Array(targetSize);
+        out.set(bytes, 0);
+        const filler = new Uint8Array(16);
+        const fillerView = new DataView(filler.buffer);
+        writeUint32BE(fillerView, 0, 0xf1000000);
+        writeUint32BE(fillerView, 4, 0xffffff3f);
+        writeUint32BE(fillerView, 8, 0x00000000);
+        writeUint32BE(fillerView, 12, 0x00000000);
+        for (let offset = bytes.length; offset + 16 <= targetSize; offset += 16) {
+          out.set(filler, offset);
+        }
+        return out;
+      }
+
+      function shiftMidiTicks(midiBytes, shiftTicks) {
+        const shift = Number.isFinite(shiftTicks) ? Math.max(0, Math.round(shiftTicks)) : 0;
+        if (!shift) return midiBytes;
+        const bytes = midiBytes instanceof Uint8Array ? midiBytes : new Uint8Array(midiBytes);
+        const buffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+        const view = new DataView(buffer);
+        let offset = 0;
+
+        function readStr(len) {
+          let s = "";
+          for (let i = 0; i < len; i++) {
+            s += String.fromCharCode(view.getUint8(offset + i));
+          }
+          offset += len;
+          return s;
+        }
+
+        function readU32() {
+          const v = view.getUint32(offset, false);
+          offset += 4;
+          return v;
+        }
+
+        function readU16() {
+          const v = view.getUint16(offset, false);
+          offset += 2;
+          return v;
+        }
+
+        if (readStr(4) !== "MThd") {
+          throw new Error("Not a MIDI file");
+        }
+        const headerLen = readU32();
+        const format = readU16();
+        const numTracks = readU16();
+        const division = readU16();
+        if (division & 0x8000) {
+          throw new Error("SMPTE time format is not supported.");
+        }
+        offset += Math.max(0, headerLen - 6);
+
+        const tracks = [];
+
+        for (let t = 0; t < numTracks; t++) {
+          if (readStr(4) !== "MTrk") {
+            throw new Error("Invalid MIDI track header");
+          }
+          const trackLen = readU32();
+          const trackEnd = offset + trackLen;
+          let absTicks = 0;
+          let runningStatus = null;
+          let order = 0;
+          const events = [];
+
+          while (offset < trackEnd) {
+            const { value: delta, length } = readVarLen(view, offset);
+            offset += length;
+            absTicks += delta;
+            let statusByte = view.getUint8(offset);
+            if (statusByte < 0x80 && runningStatus !== null) {
+              statusByte = runningStatus;
+            } else {
+              offset += 1;
+              runningStatus = statusByte;
+            }
+
+            if (statusByte === 0xff) {
+              const metaType = view.getUint8(offset);
+              offset += 1;
+              const metaLen = readVarLen(view, offset);
+              offset += metaLen.length;
+              const data = new Uint8Array(buffer.slice(offset, offset + metaLen.value));
+              offset += metaLen.value;
+              const bytesOut = [
+                0xff,
+                metaType,
+                ...writeVarLen(metaLen.value),
+                ...Array.from(data)
+              ];
+              events.push({ tick: absTicks, order: order++, bytes: bytesOut });
+              continue;
+            }
+
+            if (statusByte === 0xf0 || statusByte === 0xf7) {
+              const sysLen = readVarLen(view, offset);
+              offset += sysLen.length;
+              const data = new Uint8Array(buffer.slice(offset, offset + sysLen.value));
+              offset += sysLen.value;
+              const bytesOut = [statusByte, ...writeVarLen(sysLen.value), ...Array.from(data)];
+              events.push({ tick: absTicks, order: order++, bytes: bytesOut });
+              continue;
+            }
+
+            const type = statusByte & 0xf0;
+            if (type === 0xc0 || type === 0xd0) {
+              const data0 = view.getUint8(offset);
+              offset += 1;
+              events.push({
+                tick: absTicks,
+                order: order++,
+                bytes: [statusByte, data0 & 0x7f]
+              });
+              continue;
+            }
+
+            const data0 = view.getUint8(offset);
+            const data1 = view.getUint8(offset + 1);
+            offset += 2;
+            const bytesOut = [statusByte, data0 & 0x7f, data1 & 0x7f];
+            events.push({ tick: absTicks, order: order++, bytes: bytesOut });
+          }
+
+          const endEvents = events.filter(isEndOfTrackEvent);
+          const activeEvents = events
+            .filter((event) => !isEndOfTrackEvent(event))
+            .map((event) => ({ ...event, tick: Math.max(0, event.tick - shift) }));
+          activeEvents.sort((a, b) => (a.tick !== b.tick ? a.tick - b.tick : a.order - b.order));
+          let maxTick = activeEvents.length ? activeEvents[activeEvents.length - 1].tick : 0;
+          if (!endEvents.length) {
+            endEvents.push({ tick: maxTick, order: Number.MAX_SAFE_INTEGER, bytes: [0xff, 0x2f, 0x00] });
+          } else {
+            endEvents.forEach((event, idx) => {
+              event.tick = maxTick;
+              event.order = Number.MAX_SAFE_INTEGER + idx;
+            });
+          }
+          const finalEvents = activeEvents.concat(endEvents);
+
+          let lastTick = 0;
+          const trackBytes = [];
+          finalEvents.forEach((event) => {
+            const delta = Math.max(0, event.tick - lastTick);
+            trackBytes.push(...writeVarLen(delta), ...event.bytes);
+            lastTick = event.tick;
+          });
+          tracks.push(Uint8Array.from(trackBytes));
+        }
+
+        const totalLength = 14 + tracks.reduce((sum, track) => sum + 8 + track.length, 0);
+        const out = new Uint8Array(totalLength);
+        const outView = new DataView(out.buffer);
+        out.set([0x4d, 0x54, 0x68, 0x64], 0);
+        writeUint32BE(outView, 4, 6);
+        out[8] = (format >> 8) & 0xff;
+        out[9] = format & 0xff;
+        out[10] = (numTracks >> 8) & 0xff;
+        out[11] = numTracks & 0xff;
+        out[12] = (division >> 8) & 0xff;
+        out[13] = division & 0xff;
+        let cursor = 14;
+        tracks.forEach((track) => {
+          out.set([0x4d, 0x54, 0x72, 0x6b], cursor);
+          writeUint32BE(outView, cursor + 4, track.length);
+          out.set(track, cursor + 8);
+          cursor += 8 + track.length;
+        });
+        return out;
+      }
+
+      function shortenMidiNotes(midiBytes, factor, chordTicks, gateMode, forceEndTick, shiftTicks) {
         const bytes = midiBytes instanceof Uint8Array ? midiBytes : new Uint8Array(midiBytes);
         const buffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
         const view = new DataView(buffer);
         let offset = 0;
         const gateTicks = normalizeChordTicks(chordTicks);
+        const shift = Number.isFinite(shiftTicks) ? Math.max(0, Math.round(shiftTicks)) : 0;
 
         function readStr(len) {
           let s = "";
@@ -1757,6 +2117,12 @@
             maxTick = Math.round(forceEndTick);
             trimTick = maxTick;
           }
+          if (shift) {
+            activeEvents.forEach((event) => {
+              event.tick = Math.max(0, event.tick - shift);
+            });
+            maxTick = Math.max(0, maxTick - shift);
+          }
           if (!endEvents.length) {
             endEvents.push({ tick: maxTick, order: Number.MAX_SAFE_INTEGER, bytes: [0xff, 0x2f, 0x00] });
           } else {
@@ -1843,11 +2209,66 @@
         return last;
       }
 
+      function getFirstNoteOnTick(noteEvents) {
+        if (!Array.isArray(noteEvents) || !noteEvents.length) return null;
+        let first = null;
+        noteEvents.forEach((event) => {
+          if (event && event.on && typeof event.tick === "number") {
+            if (first === null || event.tick < first) first = event.tick;
+          }
+        });
+        return first;
+      }
+
+      function shiftChordTicks(chords, shiftTicks) {
+        const shift = Number.isFinite(shiftTicks) ? Math.max(0, Math.round(shiftTicks)) : 0;
+        if (!shift || !Array.isArray(chords)) return chords;
+        return chords.map((chord) => {
+          if (!chord || !Number.isFinite(chord.tick)) return chord;
+          return { ...chord, tick: Math.max(0, chord.tick - shift) };
+        });
+      }
+
       function isMidiBytes(data) {
         if (!data) return false;
         const bytes = data instanceof Uint8Array ? data : new Uint8Array(data);
         if (bytes.length < 4) return false;
         return bytes[0] === 0x4d && bytes[1] === 0x54 && bytes[2] === 0x68 && bytes[3] === 0x64;
+      }
+
+      function getMidiActualLength(midiBytes) {
+        const bytes = midiBytes instanceof Uint8Array ? midiBytes : new Uint8Array(midiBytes);
+        if (bytes.length < 14) return bytes.length;
+        if (!isMidiBytes(bytes)) return bytes.length;
+        const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+        let offset = 0;
+        const headerLen = view.getUint32(4, false);
+        const numTracks = view.getUint16(10, false);
+        offset = 8 + headerLen;
+        let total = offset;
+        for (let t = 0; t < numTracks; t++) {
+          if (offset + 8 > bytes.length) return bytes.length;
+          if (
+            bytes[offset] !== 0x4d ||
+            bytes[offset + 1] !== 0x54 ||
+            bytes[offset + 2] !== 0x72 ||
+            bytes[offset + 3] !== 0x6b
+          ) {
+            return bytes.length;
+          }
+          const len = view.getUint32(offset + 4, false);
+          total = offset + 8 + len;
+          offset = total;
+        }
+        return Math.min(total, bytes.length);
+      }
+
+      function normalizeMidiBytes(midiBytes) {
+        if (!midiBytes) return midiBytes;
+        const bytes = midiBytes instanceof Uint8Array ? midiBytes : new Uint8Array(midiBytes);
+        const actual = getMidiActualLength(bytes);
+        if (actual >= bytes.length) return bytes;
+        return bytes.slice(0, actual);
       }
 
       function buildMidiFile(noteEvents, ppq, bpm) {
@@ -2088,11 +2509,20 @@
         if (!sequResult.encodedCount) {
           throw new Error("No supported chords detected for AIFF encoding.");
         }
-        if (midiBytes && !isMidiBytes(midiBytes)) {
+        const normalizedMidi = midiBytes ? normalizeMidiBytes(midiBytes) : null;
+        if (normalizedMidi && !isMidiBytes(normalizedMidi)) {
           throw new Error("Embedded MIDI is invalid.");
         }
-        const outputBytes = buildAiffWithSequ(templateAiffBuffer, sequResult.bytes, midiBytes);
-        if (midiBytes) {
+        let paddedMidi = normalizedMidi;
+        if (paddedMidi && templateMidiSize && paddedMidi.length <= templateMidiSize) {
+          paddedMidi = padMidiToSize(paddedMidi, templateMidiSize);
+        }
+        let paddedSequ = sequResult.bytes;
+        if (templateSequSize && paddedSequ.length <= templateSequSize) {
+          paddedSequ = padSequToSize(paddedSequ, templateSequSize);
+        }
+        const outputBytes = buildAiffWithSequ(templateAiffBuffer, paddedSequ, paddedMidi);
+        if (paddedMidi) {
           validateAiffMidi(outputBytes);
         }
         return { outputBytes, encodedCount: sequResult.encodedCount };
@@ -2116,22 +2546,29 @@
           const windowTicks = getChordWindowTicks(midiInfo.ppq);
           const chords = detectChords(midiInfo.noteEvents, options, windowTicks);
           logLine("Detected chords: " + chords.length);
+          const trimLeading = document.getElementById("trim-leading").checked;
+          const firstNoteTick = trimLeading ? getFirstNoteOnTick(midiInfo.noteEvents) : null;
+          const shiftTicks = Number.isFinite(firstNoteTick) && firstNoteTick > 0 ? firstNoteTick : 0;
+          if (shiftTicks) {
+            logLine("Trimmed leading silence: " + shiftTicks + " ticks.");
+          }
           const preserveOriginal = shouldPreserveOriginalMidi();
           const gateToNext = !preserveOriginal && options.gateToNext;
           const rawMidiBytes = new Uint8Array(buffer);
           const originalEndTick = !preserveOriginal ? getLastNoteTick(midiInfo.noteEvents) : null;
           const midiBytes = preserveOriginal
-            ? rawMidiBytes
+            ? (shiftTicks ? shiftMidiTicks(rawMidiBytes, shiftTicks) : rawMidiBytes)
             : shortenMidiNotes(
                 rawMidiBytes,
                 NOTE_LENGTH_FACTOR,
                 getChordTicks(chords),
                 gateToNext ? "toNext" : null,
-                originalEndTick
+                originalEndTick,
+                shiftTicks
               );
           const includeSequNotes = !preserveOriginal;
           const aiffResult = await buildAiffFromChords(
-            chords,
+            shiftTicks ? shiftChordTicks(chords, shiftTicks) : chords,
             midiInfo.ppq,
             midiBytes,
             includeSequNotes,
@@ -2225,6 +2662,9 @@
         if (!sequChunk) {
           throw new Error("Sequ chunk not found in template AIFF.");
         }
+        const midiChunk = chunks.find((chunk) => chunk.id === ".mid");
+        templateMidiSize = midiChunk ? midiChunk.size : null;
+        templateSequSize = sequChunk.size;
         const sequBytes = new Uint8Array(
           templateAiffBuffer.slice(sequChunk.dataStart, sequChunk.dataEnd)
         );
@@ -2251,7 +2691,18 @@
         return inputs[0].id;
       }
 
+      function resolveSelectedInputs() {
+        if (!midiAccess) return [];
+        const inputs = Array.from(midiAccess.inputs.values());
+        if (midiInputSelect.value === ALL_INPUTS_VALUE) {
+          return inputs;
+        }
+        const input = midiAccess.inputs.get(midiInputSelect.value);
+        return input ? [input] : [];
+      }
+
       function populateMidiInputs() {
+        const currentId = midiInputSelect.value;
         midiInputSelect.innerHTML = "";
         if (!midiAccess) {
           const opt = document.createElement("option");
@@ -2272,7 +2723,11 @@
           return;
         }
 
-        const currentId = midiInputSelect.value;
+        const allOpt = document.createElement("option");
+        allOpt.textContent = "All inputs (" + inputs.length + ")";
+        allOpt.value = ALL_INPUTS_VALUE;
+        midiInputSelect.appendChild(allOpt);
+
         inputs.forEach((input) => {
           const opt = document.createElement("option");
           opt.value = input.id;
@@ -2280,12 +2735,13 @@
           midiInputSelect.appendChild(opt);
         });
 
-        if (currentId && midiAccess.inputs.has(currentId)) {
+        if (currentId && (currentId === ALL_INPUTS_VALUE || midiAccess.inputs.has(currentId))) {
           midiInputSelect.value = currentId;
         } else {
-          midiInputSelect.value = pickDefaultInput(inputs);
+          midiInputSelect.value = inputs.length > 1 ? ALL_INPUTS_VALUE : pickDefaultInput(inputs);
         }
-        activeInput = midiAccess.inputs.get(midiInputSelect.value) || null;
+        activeInputs = resolveSelectedInputs();
+        activeInput = activeInputs.length === 1 ? activeInputs[0] : null;
         updateListenButtons();
       }
 
@@ -2379,14 +2835,14 @@
           logLine("Enable MIDI first.");
           return;
         }
-        const inputId = midiInputSelect.value;
-        const input = midiAccess.inputs.get(inputId);
-        if (!input) {
+        const inputs = resolveSelectedInputs();
+        if (!inputs.length) {
           logLine("Select a MIDI input.");
           return;
         }
         clearOutput();
-        activeInput = input;
+        activeInputs = inputs;
+        activeInput = activeInputs.length === 1 ? activeInputs[0] : null;
         recordedMessages = [];
         clockTimes = [];
         recordStartTime = null;
@@ -2395,19 +2851,27 @@
         lastLiveChord = null;
         liveChordEl.textContent = "—";
         isListening = true;
-        activeInput.onmidimessage = handleMidiMessage;
+        activeInputs.forEach((input) => {
+          input.onmidimessage = handleMidiMessage;
+        });
         setListenStatus("Listening...");
         updateListenButtons();
-        logLine("Listening on: " + (activeInput.name || "MIDI Input"));
+        if (activeInputs.length > 1) {
+          logLine("Listening on: All inputs (" + activeInputs.length + ")");
+        } else {
+          logLine("Listening on: " + (activeInputs[0].name || "MIDI Input"));
+        }
         logLine("Press Play in Logic, then stop, then click Done Listening.");
       }
 
       async function stopListening() {
         if (!isListening) return;
         isListening = false;
-        if (activeInput) {
-          activeInput.onmidimessage = null;
-        }
+        activeInputs.forEach((input) => {
+          input.onmidimessage = null;
+        });
+        activeInputs = [];
+        activeInput = null;
         setListenStatus("Processing...");
         updateListenButtons();
         liveChordEl.textContent = "—";
@@ -2458,7 +2922,8 @@
       });
       midiInputSelect.addEventListener("change", () => {
         if (midiAccess) {
-          activeInput = midiAccess.inputs.get(midiInputSelect.value) || null;
+          activeInputs = resolveSelectedInputs();
+          activeInput = activeInputs.length === 1 ? activeInputs[0] : null;
         }
         updateListenButtons();
       });

@@ -28,3 +28,5 @@ https://santismo.github.io/Chord.Injector/
 ## Notes
 - In block-chord mode, enable `Hold block chords until next chord` to gate the chord lengths cleanly.
 - `Preserve original MIDI notes` keeps the captured MIDI instead of generating block chords.(still experimental)
+- more chords being added, so it may revert to simpler chords sometimes
+- automation option available, check automation folder readme for setup instructions

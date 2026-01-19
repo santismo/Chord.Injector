@@ -237,6 +237,18 @@
               <button id="midi-convert" class="secondary" type="button">Convert MIDI to AIFF</button>
             </div>
           </div>
+          <div class="group">
+            <strong>Template AIFF (local)</strong>
+            <label>
+              Choose template AIFF
+              <input id="template-file" type="file" accept=".aif,.aiff,audio/aiff">
+            </label>
+            <div class="actions">
+              <button id="template-load" class="secondary" type="button">Load Template</button>
+            </div>
+            <div id="template-status" class="pill">Template: not loaded</div>
+            <div class="hint">If local testing can't fetch split template parts, upload template.aif.</div>
+          </div>
         </div>
       </section>
 
@@ -360,6 +372,9 @@
       const listenUseClockInput = document.getElementById("listen-use-clock");
       const midiFileInput = document.getElementById("midi-file");
       const midiConvertBtn = document.getElementById("midi-convert");
+      const templateFileInput = document.getElementById("template-file");
+      const templateLoadBtn = document.getElementById("template-load");
+      const templateStatus = document.getElementById("template-status");
       const liveChordEl = document.getElementById("live-chord");
 
       const ALL_INPUTS_VALUE = "__all__";
@@ -397,6 +412,10 @@
         { name: "aug7(9,11)", intervals: [0, 2, 4, 5, 8, 10], priority: 6 },
         { name: "7(9,b13)sus4", intervals: [0, 2, 5, 7, 8, 10], priority: 6 },
         { name: "m7(9,11)", intervals: [0, 2, 3, 5, 7, 10], priority: 6 },
+        { name: "m7(11)", intervals: [0, 3, 5, 7, 10], priority: 6 },
+        { name: "m7(9)", intervals: [0, 2, 3, 7, 10], priority: 6 },
+        { name: "maj7(11)", intervals: [0, 4, 5, 7, 11], priority: 6 },
+        { name: "maj7(#11)", intervals: [0, 4, 6, 7, 11], priority: 6 },
         { name: "maj7(9)", intervals: [0, 2, 4, 7, 11], priority: 6 },
         { name: "9", intervals: [0, 2, 4, 7, 10], priority: 6 },
         { name: "7(b9)", intervals: [0, 1, 4, 7, 10], priority: 6 },
@@ -465,11 +484,15 @@
         "7(b9)": 0x9304070f,
         "7(#9)": 0x9904070f,
         "maj7(9)": 0x9508070f,
+        "maj7(11)": 0x9108070f,
+        "maj7(#11)": 0x9108070f,
         add11: 0xb100070f,
         "(#11)": 0xd100070f,
         "(b13)": 0x9101070f,
         mmaj7: 0x8908070f,
         m7: 0x8904070f,
+        "m7(11)": 0x8904070f,
+        "m7(9)": 0x8904070f,
         "m7(9,11)": 0xcd04070f,
         "aug7(9,11)": 0x3505070f,
         "7(9,b13)sus4": 0xa505070f,
@@ -484,6 +507,12 @@
       const SEQU_SLASH_CODES = {
         "": 0x91000103
       };
+
+      const ALLOW_UNMAPPED_DESCRIPTOR_CODES = new Set([
+        SEQU_DESCRIPTOR_CODES.m7,
+        SEQU_DESCRIPTOR_CODES["m7(11)"],
+        SEQU_DESCRIPTOR_CODES["m7(9)"]
+      ]);
 
       const SEQU_INTERVALS = {
         "7(9,#11,13)": [0, 2, 4, 6, 7, 9, 10],
@@ -505,11 +534,15 @@
         "7(b9)": [0, 1, 4, 7, 10],
         "7(#9)": [0, 3, 4, 7, 10],
         "maj7(9)": [0, 2, 4, 7, 11],
+        "maj7(11)": [0, 4, 5, 7, 11],
+        "maj7(#11)": [0, 4, 6, 7, 11],
         add11: [0, 4, 5, 7],
         "(#11)": [0, 4, 6, 7],
         "(b13)": [0, 4, 7, 8],
         mmaj7: [0, 3, 7, 11],
         m7: [0, 3, 7, 10],
+        "m7(11)": [0, 3, 5, 7, 10],
+        "m7(9)": [0, 2, 3, 7, 10],
         "m7(9,11)": [0, 2, 3, 5, 7, 10],
         "aug7(9,11)": [0, 2, 4, 5, 8, 10],
         "7(9,b13)sus4": [0, 2, 5, 7, 8, 10],
@@ -530,6 +563,10 @@
         "6(9,11)b5": "6",
         "dim7(b9)": "dim",
         "maj7(9)": "maj7",
+        "maj7(11)": "maj7",
+        "maj7(#11)": "maj7",
+        "m7(11)": "m7",
+        "m7(9)": "m7",
         m7: "m"
       };
 
@@ -775,6 +812,8 @@
         if (text.startsWith("m7(")) {
           if (text.includes("9,11,b13")) return "m7(9,11,b13)";
           if (text.includes("9,11") || text.includes("9,#11")) return "m7(9,11)";
+          if (text.includes("11")) return "m7(11)";
+          if (text.includes("9")) return "m7(9)";
         }
         if (text.startsWith("m(") && text.includes("9,13,b5")) return "m(9,13,b5)";
         if (text.startsWith("aug7") && text.includes("9,11")) return "aug7(9,11)";
@@ -782,6 +821,8 @@
           return "maj7(9)sus4";
         }
         if (text.startsWith("maj7") && text.includes("9")) return "maj7(9)";
+        if (text.startsWith("maj7") && text.includes("#11")) return "maj7(#11)";
+        if (text.startsWith("maj7") && text.includes("11")) return "maj7(11)";
         if (text.includes("7,9,b13") && text.includes("sus4")) return "7(9,b13)sus4";
         if (text.includes("7,9") && text.includes("sus4")) return "7(9)sus4";
         if (text.includes("7,9,#11,13") || (text.includes("13") && text.includes("#11") && text.includes("7"))) {
@@ -1247,11 +1288,17 @@
         return bytes.buffer;
       }
 
+      function setTemplateStatus(text) {
+        if (templateStatus) {
+          templateStatus.textContent = text;
+        }
+      }
+
       async function loadTemplateAiff() {
         if (templateAiffBuffer && templateSequInfo) return;
         if (TEMPLATE_AIFF_BASE64.trim()) {
           const buffer = decodeBase64ToArrayBuffer(TEMPLATE_AIFF_BASE64);
-          setTemplateAiff(buffer);
+          setTemplateAiff(buffer, "base64");
           return;
         }
         if (Array.isArray(TEMPLATE_AIFF_PARTS) && TEMPLATE_AIFF_PARTS.length) {
@@ -1270,7 +1317,7 @@
             merged.set(new Uint8Array(buf), offset);
             offset += buf.byteLength;
           });
-          setTemplateAiff(merged.buffer);
+          setTemplateAiff(merged.buffer, "split parts");
           return;
         }
         if (!TEMPLATE_AIFF_URL) {
@@ -1281,7 +1328,7 @@
           throw new Error("Failed to fetch template AIFF (" + response.status + ").");
         }
         const buffer = await response.arrayBuffer();
-        setTemplateAiff(buffer);
+        setTemplateAiff(buffer, "url");
       }
 
       function buildSequChunk(chords, sequInfo, ppq, includeNotes, noteEvents, gateToNext, endTick) {
@@ -1330,7 +1377,11 @@
             ? (SEQU_SLASH_CODES[sequQuality] || baseDescriptor)
             : baseDescriptor;
           let prefix = DESCRIPTOR_PREFIX_OVERRIDES[sequQuality] ?? 0x02;
-          if (sequInfo.descriptorTimeByCode && !sequInfo.descriptorTimeByCode.has(descriptor)) {
+          const isDescriptorAllowed = (code) =>
+            !sequInfo.descriptorTimeByCode ||
+            sequInfo.descriptorTimeByCode.has(code) ||
+            ALLOW_UNMAPPED_DESCRIPTOR_CODES.has(code);
+          if (!isDescriptorAllowed(descriptor)) {
             const fallbackQuality = SEQU_QUALITY_FALLBACKS[sequQuality];
             if (fallbackQuality) {
               sequQuality = fallbackQuality;
@@ -1341,7 +1392,7 @@
                 : baseDescriptor;
               prefix = DESCRIPTOR_PREFIX_OVERRIDES[sequQuality] ?? 0x02;
             }
-            if (!sequInfo.descriptorTimeByCode.has(descriptor)) {
+            if (!isDescriptorAllowed(descriptor)) {
               sequQuality = "";
               baseDescriptor = SEQU_DESCRIPTOR_CODES[""];
               hasSlash = parsed.bassPc !== null && parsed.bassPc !== parsed.rootPc;
@@ -1525,7 +1576,7 @@
       }
 
       function getChordWindowTicks(ppq) {
-        return Math.max(1, Math.round(ppq * 0.75));
+        return Math.max(1, Math.round(ppq * 0.9));
       }
 
       function detectChords(noteEvents, options, windowTicks) {
@@ -1594,6 +1645,7 @@
         if (pcs.length < options.minNotes) return null;
 
         const pcSet = new Set(pcs);
+        const bassPc = activeNotes.length ? activeNotes[0] % 12 : null;
         let best = null;
 
         for (let root = 0; root < 12; root++) {
@@ -1610,8 +1662,9 @@
             if (!options.allowExtensions && extraCount > 0) continue;
             let score = pattern.priority * 10 - extraCount;
             if (!pcSet.has(root)) score -= 2;
-            if (!best || score > best.score) {
-              best = { root, pattern, score };
+            const bassMatch = bassPc !== null && bassPc === root;
+            if (!best || score > best.score || (score === best.score && bassMatch && !best.bassMatch)) {
+              best = { root, pattern, score, bassMatch };
             }
           }
         }
@@ -2655,7 +2708,7 @@
         link.remove();
       }
 
-      function setTemplateAiff(buffer) {
+      function setTemplateAiff(buffer, sourceLabel, fileName) {
         templateAiffBuffer = buffer;
         const chunks = parseAiffChunks(templateAiffBuffer);
         const sequChunk = chunks.find((chunk) => chunk.id === "Sequ");
@@ -2669,6 +2722,24 @@
           templateAiffBuffer.slice(sequChunk.dataStart, sequChunk.dataEnd)
         );
         templateSequInfo = parseSequInfo(sequBytes);
+        const label = sourceLabel ? "Template loaded: " + sourceLabel : "Template loaded";
+        const suffix = fileName ? " (" + fileName + ")" : "";
+        setTemplateStatus(label + suffix);
+      }
+
+      async function handleTemplateFile(file) {
+        if (!file) {
+          logLine("Select a template AIFF file.");
+          return;
+        }
+        try {
+          const buffer = await file.arrayBuffer();
+          setTemplateAiff(buffer, "upload", file.name);
+          logLine("Template loaded: " + file.name);
+        } catch (err) {
+          setTemplateStatus("Template load failed");
+          logLine("Template load error: " + err.message);
+        }
       }
 
       function pickDefaultInput(inputs) {
@@ -2920,6 +2991,14 @@
       midiConvertBtn.addEventListener("click", () => {
         handleMidiFile(midiFileInput.files[0]);
       });
+      templateLoadBtn.addEventListener("click", () => {
+        handleTemplateFile(templateFileInput.files[0]);
+      });
+      templateFileInput.addEventListener("change", () => {
+        if (templateFileInput.files && templateFileInput.files[0]) {
+          handleTemplateFile(templateFileInput.files[0]);
+        }
+      });
       midiInputSelect.addEventListener("change", () => {
         if (midiAccess) {
           activeInputs = resolveSelectedInputs();
@@ -2938,6 +3017,7 @@
       enableMidi(true);
       loadTemplateAiff().catch((err) => {
         logLine("Template AIFF error: " + err.message);
+        setTemplateStatus("Template load failed. Upload a template AIFF.");
       });
     </script>
   </body>

@@ -7824,6 +7824,44 @@ AI6cBw9QAIfiB295AIQkB9S8AINaCD9TU05EAAAADgAAAAAAAAAAAAAAAAAA
         "": 0x91000103
       };
 
+      const EXTRA_DESCRIPTOR_TIMES = new Map([
+        [0x1101070f, 0x8020350b],
+        [0x2505070f, 0x80206d05],
+        [0x3505070f, 0x807f0000],
+        [0x4100070f, 0x8020550b],
+        [0x4900070f, 0x80206d05],
+        [0x4906070f, 0x80206b06],
+        [0x4d06070f, 0x807f0000],
+        [0x5100070f, 0x8020550b],
+        [0x8100070f, 0x8020b50a],
+        [0x8500070f, 0x8020b50a],
+        [0x8900070f, 0x8020ad0a],
+        [0x8904070f, 0x8020b50a],
+        [0x8908070f, 0x8020ad0a],
+        [0x8d04070f, 0x8020b50a],
+        [0x91000103, 0x8020d90a],
+        [0x9100070f, 0x8020b50a],
+        [0x9101070f, 0x8020b309],
+        [0x9102070f, 0x8020b50a],
+        [0x9104070f, 0x8020b506],
+        [0x9108070f, 0x8020b50a],
+        [0x9304070f, 0x8020b306],
+        [0x9502070f, 0x0025d50a],
+        [0x9504070f, 0x8020b506],
+        [0x9508070f, 0x8020b50a],
+        [0x9904070f, 0x8020b906],
+        [0xa100070f, 0x8020b50a],
+        [0xa504070f, 0x8020b506],
+        [0xa505070f, 0x8020ad05],
+        [0xa508070f, 0x8020b50a],
+        [0xa904070f, 0x8027ad06],
+        [0xad05070f, 0x8020ad05],
+        [0xb100070f, 0x8020b50a],
+        [0xcd04070f, 0x8020cd06],
+        [0xd100070f, 0x8020d50a],
+        [0xd108070f, 0x8020b510]
+      ]);
+
       const KNOWN_DESCRIPTOR_CODES = new Set([
         ...Object.values(SEQU_DESCRIPTOR_CODES),
         ...Object.values(SEQU_SLASH_CODES)
@@ -7873,6 +7911,8 @@ AI6cBw9QAIfiB295AIQkB9S8AINaCD9TU05EAAAADgAAAAAAAAAAAAAAAAAA
         "6(9,11)b5": 0x03
       };
 
+      const DISABLED_QUALITIES = new Set();
+
       const SEQU_QUALITY_FALLBACKS = {
         "7(9,#11,13)": "7",
         "6(9,11)b5": "6",
@@ -7880,16 +7920,19 @@ AI6cBw9QAIfiB295AIQkB9S8AINaCD9TU05EAAAADgAAAAAAAAAAAAAAAAAA
         "maj7(9)": "maj7",
         "maj7(11)": "maj7",
         "maj7(#11)": "maj7",
+        "m(9,13,b5)": "m7b5(13)",
         "m7(11)": "m7",
         "m7(9)": "m7",
         m7: "m"
       };
 
       const NOTE_LENGTH_FACTOR = 0.25;
+      const ALLOW_EXTEND_SSND = true;
       const AUDIO_LENGTH_MULTIPLIER = 1.25;
       const AUDIO_PADDING_SECONDS = 2;
       const PAD_TO_TEMPLATE_SIZES = true;
-      const INCLUDE_SEQU_NOTES = true;
+      const STRIP_VIEW_CHUNKS = true;
+      const INCLUDE_SEQU_NOTES = false;
       const SEQU_NOTE_OFF_WORD = 0x00010000;
 
       function logLine(message) {
@@ -7897,6 +7940,11 @@ AI6cBw9QAIfiB295AIQkB9S8AINaCD9TU05EAAAADgAAAAAAAAAAAAAAAAAA
         div.textContent = message;
         logEl.appendChild(div);
         logEl.scrollTop = logEl.scrollHeight;
+      }
+
+      function formatChordList(chords) {
+        if (!Array.isArray(chords) || !chords.length) return "Chords: none";
+        return "Chords: " + chords.map((ch) => ch.name).join(", ");
       }
 
       function resetLog() {
@@ -8511,6 +8559,11 @@ AI6cBw9QAIfiB295AIQkB9S8AINaCD9TU05EAAAADgAAAAAAAAAAAAAAAAAA
             }
           }
         });
+        EXTRA_DESCRIPTOR_TIMES.forEach((time, code) => {
+          if (!descriptorTimeByCode.has(code)) {
+            descriptorTimeByCode.set(code, time);
+          }
+        });
         return {
           headerRecords,
           posBase,
@@ -8647,28 +8700,48 @@ AI6cBw9QAIfiB295AIQkB9S8AINaCD9TU05EAAAADgAAAAAAAAAAAAAAAAAA
         records.push(...sequInfo.headerRecords);
         const ticksPerPos = (4 * ppq) / sequInfo.posStep;
         let encodedCount = 0;
-        const useSequNotes = typeof includeNotes === "boolean" ? includeNotes : INCLUDE_SEQU_NOTES;
+        let useSequNotes = typeof includeNotes === "boolean" ? includeNotes : INCLUDE_SEQU_NOTES;
         const sortedChords = Array.isArray(chords)
           ? chords
               .filter((ch) => ch && Number.isFinite(ch.tick))
               .slice()
               .sort((a, b) => a.tick - b.tick)
           : [];
-        const chordPositions = sortedChords.map((chord) => ({
-          chord,
-          posClean: sequInfo.posBase + Math.round(chord.tick / ticksPerPos)
-        }));
+        const chordPositions = sortedChords
+          .map((chord) => {
+            const parsed = parseChordName(chord.name);
+            if (!parsed) return null;
+            return {
+              chord,
+              parsed,
+              posClean: sequInfo.posBase + Math.round(chord.tick / ticksPerPos)
+            };
+          })
+          .filter(Boolean);
         let noteRecords = null;
         if (useSequNotes && Array.isArray(noteEvents) && noteEvents.length) {
           noteRecords = buildSequNoteRecordsFromMidi(noteEvents, sequInfo, ppq);
           const maxRecords = sequInfo.maxRecords || Number.POSITIVE_INFINITY;
           const estimated =
             sequInfo.headerRecords.length +
-            chords.length * 4 +
+            chordPositions.length * 4 +
             (noteRecords.length || 0) +
             1;
           if (estimated > maxRecords) {
             noteRecords = null;
+          }
+        }
+        let useBlockNotes = useSequNotes && !noteRecords;
+        if (useBlockNotes) {
+          const maxRecords = sequInfo.maxRecords || Number.POSITIVE_INFINITY;
+          let estimated = sequInfo.headerRecords.length + chordPositions.length * 4 + 1;
+          chordPositions.forEach((entry) => {
+            const notes = buildChordNotes(entry.parsed.rootPc, entry.parsed.quality, entry.parsed.bassPc);
+            estimated += notes.length * 2;
+          });
+          if (estimated > maxRecords) {
+            useBlockNotes = false;
+            useSequNotes = false;
           }
         }
 
@@ -8676,12 +8749,16 @@ AI6cBw9QAIfiB295AIQkB9S8AINaCD9TU05EAAAADgAAAAAAAAAAAAAAAAAA
           ? sequInfo.posBase + Math.round(endTick / ticksPerPos)
           : null;
 
+        const notesIncluded = !!noteRecords || useBlockNotes;
+
         chordPositions.forEach((entry, index) => {
           const chord = entry.chord;
-          const parsed = parseChordName(chord.name);
-          if (!parsed) return;
+          const parsed = entry.parsed;
           encodedCount += 1;
           let sequQuality = parsed.quality;
+          if (DISABLED_QUALITIES.has(sequQuality)) {
+            sequQuality = SEQU_QUALITY_FALLBACKS[sequQuality] || "";
+          }
           let baseDescriptor = SEQU_DESCRIPTOR_CODES[sequQuality] || SEQU_DESCRIPTOR_CODES[""];
           let hasSlash = parsed.bassPc !== null && parsed.bassPc !== parsed.rootPc;
           let descriptor = hasSlash
@@ -8689,9 +8766,7 @@ AI6cBw9QAIfiB295AIQkB9S8AINaCD9TU05EAAAADgAAAAAAAAAAAAAAAAAA
             : baseDescriptor;
           let prefix = DESCRIPTOR_PREFIX_OVERRIDES[sequQuality] ?? 0x02;
           const isDescriptorAllowed = (code) =>
-            !sequInfo.descriptorTimeByCode ||
-            sequInfo.descriptorTimeByCode.has(code) ||
-            KNOWN_DESCRIPTOR_CODES.has(code);
+            !sequInfo.descriptorTimeByCode || sequInfo.descriptorTimeByCode.has(code);
           if (!isDescriptorAllowed(descriptor)) {
             const fallbackQuality = SEQU_QUALITY_FALLBACKS[sequQuality];
             if (fallbackQuality) {
@@ -8716,12 +8791,15 @@ AI6cBw9QAIfiB295AIQkB9S8AINaCD9TU05EAAAADgAAAAAAAAAAAAAAAAAA
           const posClean = entry.posClean;
           const posFlag = prefix === 0x03 ? 0x8000 : 0;
           const posVal = ((posClean | posFlag) & 0xffff) << 16;
-          let timeWord = Math.round(
-            sequInfo.timeBase + (posClean - sequInfo.posBase) * sequInfo.timeScale
-          );
+          let timeWord = sequInfo.timeBase;
           if (sequInfo.descriptorTimeByCode && sequInfo.descriptorTimeByCode.has(descriptor)) {
             timeWord = sequInfo.descriptorTimeByCode.get(descriptor);
-          } else {
+          } else if (Number.isFinite(sequInfo.timeScale) && sequInfo.timeScale !== 0) {
+            timeWord = Math.round(
+              sequInfo.timeBase + (posClean - sequInfo.posBase) * sequInfo.timeScale
+            );
+          }
+          if (!Number.isFinite(timeWord)) {
             timeWord = sequInfo.timeBase;
           }
           const descriptorWord = (prefix << 24) | (parsed.rootPc << 16) | 0x00b2;
@@ -8731,7 +8809,7 @@ AI6cBw9QAIfiB295AIQkB9S8AINaCD9TU05EAAAADgAAAAAAAAAAAAAAAAAA
           records.push(makeSequRecord(0x70000000, posVal, 0x00000000, 0x67000001));
           records.push(makeSequRecord(descriptor, descriptorWord, 0x00000000, timeWord));
 
-          if (useSequNotes && !noteRecords) {
+          if (useBlockNotes) {
             const notes = buildChordNotes(parsed.rootPc, parsed.quality, parsed.bassPc);
             let durationWord = SEQU_NOTE_OFF_WORD;
             if (gateToNext) {
@@ -8770,7 +8848,7 @@ AI6cBw9QAIfiB295AIQkB9S8AINaCD9TU05EAAAADgAAAAAAAAAAAAAAAAAA
           writeUint32BE(view, base + 8, record[2]);
           writeUint32BE(view, base + 12, record[3]);
         });
-        return { bytes: out, encodedCount };
+        return { bytes: out, encodedCount, notesIncluded };
       }
 
       function buildAiffWithSequ(templateBuffer, sequBytes, midiBytes) {
@@ -8802,7 +8880,8 @@ AI6cBw9QAIfiB295AIQkB9S8AINaCD9TU05EAAAADgAAAAAAAAAAAAAAAAAA
         const sampleFramesOffset = commChunk.dataStart + 2;
         const sampleSize = view.getUint16(commChunk.dataStart + 6, false);
         const sampleRate = readExtended80(view, commChunk.dataStart + 8);
-        let targetFrames = view.getUint32(sampleFramesOffset, false);
+        const templateFrames = view.getUint32(sampleFramesOffset, false);
+        let targetFrames = templateFrames;
 
         if (midiData && sampleRate) {
           try {
@@ -8810,6 +8889,9 @@ AI6cBw9QAIfiB295AIQkB9S8AINaCD9TU05EAAAADgAAAAAAAAAAAAAAAAAA
             durationSeconds =
               Math.max(0, durationSeconds * AUDIO_LENGTH_MULTIPLIER + AUDIO_PADDING_SECONDS);
             targetFrames = Math.max(1, Math.ceil(durationSeconds * sampleRate));
+            if (!ALLOW_EXTEND_SSND) {
+              targetFrames = Math.min(targetFrames, templateFrames);
+            }
           } catch (err) {
             targetFrames = Math.max(1, targetFrames);
           }
@@ -8841,7 +8923,10 @@ AI6cBw9QAIfiB295AIQkB9S8AINaCD9TU05EAAAADgAAAAAAAAAAAAAAAAAA
           }
         }
 
-        const chunkDataList = chunks.map((chunk) => {
+        const chunkDataList = chunks.flatMap((chunk) => {
+          if (STRIP_VIEW_CHUNKS && (chunk.id === "CHSV" || chunk.id === "LGWV")) {
+            return [];
+          }
           let data = new Uint8Array(templateBuffer.slice(chunk.dataStart, chunk.dataEnd));
           if (chunk.id === "COMM") {
             const commView = new DataView(data.buffer, data.byteOffset, data.byteLength);
@@ -8859,7 +8944,7 @@ AI6cBw9QAIfiB295AIQkB9S8AINaCD9TU05EAAAADgAAAAAAAAAAAAAAAAAA
           } else if (chunk.id === "SSND") {
             data = ssndData;
           }
-          return { id: chunk.id, data };
+          return [{ id: chunk.id, data }];
         });
 
         let totalSize = 12;
@@ -8979,8 +9064,25 @@ AI6cBw9QAIfiB295AIQkB9S8AINaCD9TU05EAAAADgAAAAAAAAAAAAAAAAAA
         return midiChunk.size;
       }
 
-      function getChordWindowTicks(ppq) {
-        return Math.max(1, Math.round(ppq * 0.9));
+      function getChordWindowTicks(noteEvents, ppq) {
+        const base = Math.max(1, Math.round((ppq || 480) * 0.9));
+        if (!Array.isArray(noteEvents) || noteEvents.length < 2) return base;
+        const onTicks = noteEvents.filter((ev) => ev && ev.on).map((ev) => ev.tick);
+        if (onTicks.length < 2) return base;
+        onTicks.sort((a, b) => a - b);
+        const gaps = [];
+        for (let i = 1; i < onTicks.length; i++) {
+          const gap = onTicks[i] - onTicks[i - 1];
+          if (gap > 0) gaps.push(gap);
+        }
+        if (!gaps.length) return base;
+        gaps.sort((a, b) => a - b);
+        const mid = Math.floor(gaps.length / 2);
+        const median = gaps.length % 2 ? gaps[mid] : Math.round((gaps[mid - 1] + gaps[mid]) / 2);
+        const minWindow = Math.max(1, Math.round((ppq || 480) * 0.15));
+        const maxWindow = base;
+        const adaptive = Math.round(median * 1.5);
+        return Math.max(minWindow, Math.min(maxWindow, adaptive));
       }
 
       function detectChords(noteEvents, options, windowTicks) {
@@ -9562,18 +9664,23 @@ AI6cBw9QAIfiB295AIQkB9S8AINaCD9TU05EAAAADgAAAAAAAAAAAAAAAAAA
             }
           });
 
-          let trimTick = getTrimTickFromEvents(events);
+          const trimTick = getTrimTickFromEvents(events);
+          let effectiveTrimTick = trimTick;
+          if (Number.isFinite(forceEndTick)) {
+            const forced = Math.max(0, Math.round(forceEndTick));
+            if (effectiveTrimTick === null || forced > effectiveTrimTick) {
+              effectiveTrimTick = forced;
+            }
+          }
           const endEvents = events.filter(isEndOfTrackEvent);
           let activeEvents = events.filter((event) => !isEndOfTrackEvent(event));
-          if (trimTick !== null) {
-            activeEvents = activeEvents.filter((event) => event.tick <= trimTick);
+          if (effectiveTrimTick !== null) {
+            activeEvents = activeEvents.filter((event) => event.tick <= effectiveTrimTick);
           }
           activeEvents.sort((a, b) => (a.tick !== b.tick ? a.tick - b.tick : a.order - b.order));
-          let maxTick = trimTick !== null ? trimTick : (activeEvents.length ? activeEvents[activeEvents.length - 1].tick : 0);
-          if (Number.isFinite(forceEndTick) && forceEndTick > maxTick) {
-            maxTick = Math.round(forceEndTick);
-            trimTick = maxTick;
-          }
+          let maxTick = effectiveTrimTick !== null
+            ? effectiveTrimTick
+            : (activeEvents.length ? activeEvents[activeEvents.length - 1].tick : 0);
           if (shift) {
             activeEvents.forEach((event) => {
               event.tick = Math.max(0, event.tick - shift);
@@ -9650,6 +9757,9 @@ AI6cBw9QAIfiB295AIQkB9S8AINaCD9TU05EAAAADgAAAAAAAAAAAAAAAAAA
             }
           }
         });
+        if (lastNoteOff !== null && lastNoteOn !== null) {
+          return Math.max(lastNoteOff, lastNoteOn);
+        }
         if (lastNoteOff !== null) return lastNoteOff;
         if (lastNoteOn !== null) return lastNoteOn;
         return lastAny;
@@ -9661,6 +9771,17 @@ AI6cBw9QAIfiB295AIQkB9S8AINaCD9TU05EAAAADgAAAAAAAAAAAAAAAAAA
         noteEvents.forEach((event) => {
           if (event && typeof event.tick === "number") {
             if (last === null || event.tick > last) last = event.tick;
+          }
+        });
+        return last;
+      }
+
+      function getLastChordTick(chords) {
+        if (!Array.isArray(chords) || !chords.length) return null;
+        let last = null;
+        chords.forEach((chord) => {
+          if (chord && typeof chord.tick === "number") {
+            if (last === null || chord.tick > last) last = chord.tick;
           }
         });
         return last;
@@ -9914,12 +10035,17 @@ AI6cBw9QAIfiB295AIQkB9S8AINaCD9TU05EAAAADgAAAAAAAAAAAAAAAAAA
         const ppq = listenOptions.ppq;
         const ticksPerMs = (ppq * bpm) / 60000;
         const noteEvents = buildRecordedNoteEvents(messages, chordOptions, startTime, ticksPerMs);
-        const windowTicks = getChordWindowTicks(ppq);
+        const windowTicks = getChordWindowTicks(noteEvents, ppq);
         const chords = detectChords(noteEvents, chordOptions, windowTicks);
+        logLine(formatChordList(chords));
         const preserveOriginal = shouldPreserveOriginalMidi();
         const gateToNext = !preserveOriginal && chordOptions.gateToNext;
         const rawMidiBytes = buildMidiFileFromMessages(messages, ppq, bpm, startTime, 1);
         const originalEndTick = !preserveOriginal ? getLastNoteTick(noteEvents) : null;
+        const lastChordTick = getLastChordTick(chords);
+        const forceEndTick = Number.isFinite(lastChordTick)
+          ? Math.max(lastChordTick, originalEndTick || 0)
+          : originalEndTick;
         const midiBytes = preserveOriginal
           ? rawMidiBytes
           : shortenMidiNotes(
@@ -9927,7 +10053,7 @@ AI6cBw9QAIfiB295AIQkB9S8AINaCD9TU05EAAAADgAAAAAAAAAAAAAAAAAA
               NOTE_LENGTH_FACTOR,
               getChordTicks(chords),
               gateToNext ? "toNext" : null,
-              originalEndTick
+              forceEndTick
             );
         const includeSequNotes = !preserveOriginal;
         const aiffResult = await buildAiffFromChords(
@@ -9938,7 +10064,13 @@ AI6cBw9QAIfiB295AIQkB9S8AINaCD9TU05EAAAADgAAAAAAAAAAAAAAAAAA
           null,
           gateToNext
         );
-        return { outputBytes: aiffResult.outputBytes, chords, bpm, encodedCount: aiffResult.encodedCount };
+        return {
+          outputBytes: aiffResult.outputBytes,
+          chords,
+          bpm,
+          encodedCount: aiffResult.encodedCount,
+          notesIncluded: aiffResult.notesIncluded
+        };
       }
 
       async function buildAiffFromChords(chords, ppq, midiBytes, includeSequNotes, noteEvents, gateToNext) {
@@ -9984,7 +10116,11 @@ AI6cBw9QAIfiB295AIQkB9S8AINaCD9TU05EAAAADgAAAAAAAAAAAAAAAAAA
         if (paddedMidi) {
           validateAiffMidi(outputBytes);
         }
-        return { outputBytes, encodedCount: sequResult.encodedCount };
+        return {
+          outputBytes,
+          encodedCount: sequResult.encodedCount,
+          notesIncluded: sequResult.notesIncluded
+        };
       }
 
       async function handleMidiFile(file) {
@@ -10002,8 +10138,9 @@ AI6cBw9QAIfiB295AIQkB9S8AINaCD9TU05EAAAADgAAAAAAAAAAAAAAAAAA
           const midiInfo = parseMidiNoteEvents(buffer, options);
           logLine("Tracks: " + midiInfo.numTracks + ", PPQ: " + midiInfo.ppq);
           logLine("Note events: " + midiInfo.noteEvents.length);
-          const windowTicks = getChordWindowTicks(midiInfo.ppq);
+          const windowTicks = getChordWindowTicks(midiInfo.noteEvents, midiInfo.ppq);
           const chords = detectChords(midiInfo.noteEvents, options, windowTicks);
+          logLine(formatChordList(chords));
           logLine("Detected chords: " + chords.length);
           const trimLeading = document.getElementById("trim-leading").checked;
           const firstNoteTick = trimLeading ? getFirstNoteOnTick(midiInfo.noteEvents) : null;
@@ -10015,6 +10152,10 @@ AI6cBw9QAIfiB295AIQkB9S8AINaCD9TU05EAAAADgAAAAAAAAAAAAAAAAAA
           const gateToNext = !preserveOriginal && options.gateToNext;
           const rawMidiBytes = new Uint8Array(buffer);
           const originalEndTick = !preserveOriginal ? getLastNoteTick(midiInfo.noteEvents) : null;
+          const lastChordTick = getLastChordTick(chords);
+          const forceEndTick = Number.isFinite(lastChordTick)
+            ? Math.max(lastChordTick, originalEndTick || 0)
+            : originalEndTick;
           const midiBytes = preserveOriginal
             ? (shiftTicks ? shiftMidiTicks(rawMidiBytes, shiftTicks) : rawMidiBytes)
             : shortenMidiNotes(
@@ -10022,7 +10163,7 @@ AI6cBw9QAIfiB295AIQkB9S8AINaCD9TU05EAAAADgAAAAAAAAAAAAAAAAAA
                 NOTE_LENGTH_FACTOR,
                 getChordTicks(chords),
                 gateToNext ? "toNext" : null,
-                originalEndTick,
+                forceEndTick,
                 shiftTicks
               );
           const includeSequNotes = !preserveOriginal;
@@ -10034,6 +10175,9 @@ AI6cBw9QAIfiB295AIQkB9S8AINaCD9TU05EAAAADgAAAAAAAAAAAAAAAAAA
             null,
             gateToNext
           );
+          if (!aiffResult.notesIncluded && includeSequNotes) {
+            logLine("Sequ chord notes skipped to fit template size.");
+          }
           const outName = buildOutputNames(chords);
           setOutput(
             outName,
@@ -10347,7 +10491,7 @@ AI6cBw9QAIfiB295AIQkB9S8AINaCD9TU05EAAAADgAAAAAAAAAAAAAAAAAA
         }
 
         try {
-          const { outputBytes, chords, bpm, encodedCount } = await buildAiffFromRecording(
+          const { outputBytes, chords, bpm, encodedCount, notesIncluded } = await buildAiffFromRecording(
             recordedMessages,
             options,
             listenOptions
@@ -10363,6 +10507,9 @@ AI6cBw9QAIfiB295AIQkB9S8AINaCD9TU05EAAAADgAAAAAAAAAAAAAAAAAA
           );
           logLine("Output ready: " + outName.downloadName);
           logLine("Chords detected: " + chords.length + ", encoded: " + encodedCount);
+          if (!notesIncluded && !shouldPreserveOriginalMidi()) {
+            logLine("Sequ chord notes skipped to fit template size.");
+          }
         } catch (err) {
           logLine("Error: " + err.message);
         } finally {

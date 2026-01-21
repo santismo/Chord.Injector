@@ -304,7 +304,7 @@
               Preserve original MIDI notes (experimental)
             </label>
             <label>
-              <input id="gate-to-next" type="checkbox" checked>
+              <input id="gate-to-next" type="checkbox">
               Hold block chords until next chord
             </label>
           </div>
@@ -11157,7 +11157,7 @@ JP/QcQCc9gC2cgCINQGEKQ==
                 nextPos = endPos;
               }
               if (Number.isFinite(nextPos) && nextPos > posClean) {
-                const durationPos = Math.max(1, nextPos - posClean);
+                const durationPos = Math.max(1, nextPos - posClean - 1);
                 durationWord = (Math.min(durationPos, 0x7fff) & 0xffff) << 16;
               }
             }

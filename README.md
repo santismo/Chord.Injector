@@ -31,4 +31,4 @@ https://santismo.github.io/Chord.Injector/
 - more chords being added, so it may revert to simpler chords sometimes
 - automation option available, check automation folder readme for setup instructions
 
-Good reference about AIFF https://blog.zamzar.com/wp-content/uploads/2014/10/aiffspecs.pdf?utm_source=chatgpt.com
+Good reference about AIFF https://blog.zamzar.com/wp-content/uploads/2014/10/aiffspecs.pdf

@@ -11001,12 +11001,29 @@ JP/QcQCc9gC2cgCINQGEKQ==
         return result;
       }
 
-      function buildSequNoteRecordsFromMidi(noteEvents, sequInfo, ppq) {
+      function buildSequNoteRecordsFromMidi(noteEvents, sequInfo, ppq, mode) {
         if (!Array.isArray(noteEvents) || !noteEvents.length) return [];
         const ticksPerPos = (4 * ppq) / sequInfo.posStep;
         const events = noteEvents
           .map((ev, idx) => ({ ...ev, order: idx }))
           .sort((a, b) => (a.tick !== b.tick ? a.tick - b.tick : (a.on === b.on ? a.order - b.order : a.on ? -1 : 1)));
+        const modeValue = mode || "duration";
+
+        if (modeValue === "logic") {
+          const noteOns = events.filter((ev) => ev.on);
+          if (!noteOns.length) return [];
+          const baseTick = noteOns[0].tick;
+          const basePos = (sequInfo.posBase << 8) >>> 0;
+          const records = [];
+          noteOns.forEach((ev) => {
+            const delta = Math.max(0, Math.round(ev.tick - baseTick));
+            const posWord = ((basePos + (delta * 2)) & 0xffff) << 16;
+            const velocity = Math.max(1, Math.min(127, ev.velocity || 96));
+            const noteWord = ((ev.note & 0x7f) << 24) | 0x00000001;
+            records.push(makeSequRecord(0x90000000, posWord >>> 0, velocity >>> 0, noteWord >>> 0));
+          });
+          return records;
+        }
         const stacks = new Map();
         const pairs = [];
         events.forEach((event) => {
@@ -11083,7 +11100,16 @@ JP/QcQCc9gC2cgCINQGEKQ==
         setTemplateAiff(buffer);
       }
 
-      function buildSequChunk(chords, sequInfo, ppq, includeNotes, noteEvents, gateToNext, endTick) {
+      function buildSequChunk(
+        chords,
+        sequInfo,
+        ppq,
+        includeNotes,
+        noteEvents,
+        gateToNext,
+        endTick,
+        noteRecordMode
+      ) {
         const records = [];
         records.push(...sequInfo.headerRecords);
         const ticksPerPos = (4 * ppq) / sequInfo.posStep;
@@ -11101,7 +11127,7 @@ JP/QcQCc9gC2cgCINQGEKQ==
         }));
         let noteRecords = null;
         if (useSequNotes && Array.isArray(noteEvents) && noteEvents.length) {
-          noteRecords = buildSequNoteRecordsFromMidi(noteEvents, sequInfo, ppq);
+          noteRecords = buildSequNoteRecordsFromMidi(noteEvents, sequInfo, ppq, noteRecordMode);
           const maxRecords = sequInfo.maxRecords || Number.POSITIVE_INFINITY;
           const estimated =
             sequInfo.headerRecords.length +
@@ -11447,7 +11473,8 @@ JP/QcQCc9gC2cgCINQGEKQ==
         const minWindow = Math.max(1, Math.round((ppq || 480) * 0.05));
         const maxWindow = Math.round(base * 1.2);
         const adaptive = Math.round(median * 1.0);
-        const scaled = Math.round(adaptive * getChordWindowFactor());
+        const factor = Math.max(1, getChordWindowFactor());
+        const scaled = Math.round(adaptive * factor);
         return Math.max(minWindow, Math.min(maxWindow, scaled));
       }
 
@@ -11504,6 +11531,7 @@ JP/QcQCc9gC2cgCINQGEKQ==
             }
           } else if (tickHadNoteOn) {
             windowHadNoteOn = true;
+            windowEnd = tick + windowSpan;
           }
         }
 
@@ -12439,14 +12467,16 @@ JP/QcQCc9gC2cgCINQGEKQ==
               originalEndTick,
               shiftTicks
             );
-        const includeSequNotes = true;
+        const includeSequNotes = preserveOriginal;
+        const noteRecordMode = preserveOriginal ? "logic" : null;
         const aiffResult = await buildAiffFromChords(
           shiftTicks ? shiftChordTicks(chords, shiftTicks) : chords,
           ppq,
           midiBytes,
           includeSequNotes,
-          null,
-          gateToNext
+          noteEvents,
+          gateToNext,
+          noteRecordMode
         );
         return {
           outputBytes: aiffResult.outputBytes,
@@ -12463,7 +12493,8 @@ JP/QcQCc9gC2cgCINQGEKQ==
         midiBytes,
         includeSequNotes,
         noteEvents,
-        gateToNext
+        gateToNext,
+        noteRecordMode
       ) {
         await loadTemplateAiff();
         if (!templateAiffBuffer || !templateSequInfo) {
@@ -12484,7 +12515,8 @@ JP/QcQCc9gC2cgCINQGEKQ==
           includeSequNotes,
           noteEvents,
           gateToNext,
-          endTick
+          endTick,
+          noteRecordMode
         );
         if (!sequResult.encodedCount) {
           throw new Error("No supported chords detected for AIFF encoding.");
@@ -12537,22 +12569,24 @@ JP/QcQCc9gC2cgCINQGEKQ==
           const chords = detectChords(midiInfo.noteEvents, options, windowTicks);
           logLine(formatChordList(chords));
           logLine("Detected chords: " + chords.length);
+          const preserveOriginal = shouldPreserveOriginalMidi();
           const trimLeading = document.getElementById("trim-leading").checked;
           const firstChordTick = trimLeading ? getFirstChordTick(chords) : null;
           const firstNoteTick = trimLeading ? getFirstNoteOnTick(midiInfo.noteEvents) : null;
           let baseShift = null;
-          if (Number.isFinite(firstNoteTick) && Number.isFinite(firstChordTick)) {
-            baseShift = Math.min(firstNoteTick, firstChordTick);
-          } else if (Number.isFinite(firstNoteTick)) {
-            baseShift = firstNoteTick;
-          } else if (Number.isFinite(firstChordTick)) {
-            baseShift = firstChordTick;
+          if (trimLeading) {
+            if (Number.isFinite(firstNoteTick) && Number.isFinite(firstChordTick)) {
+              baseShift = Math.min(firstNoteTick, firstChordTick);
+            } else if (Number.isFinite(firstNoteTick)) {
+              baseShift = firstNoteTick;
+            } else if (Number.isFinite(firstChordTick)) {
+              baseShift = firstChordTick;
+            }
           }
           const shiftTicks = Number.isFinite(baseShift) && baseShift > 0 ? baseShift : 0;
           if (shiftTicks) {
             logLine("Trimmed leading silence: " + shiftTicks + " ticks.");
           }
-          const preserveOriginal = shouldPreserveOriginalMidi();
           const gateToNext = !preserveOriginal && options.gateToNext;
           const rawMidiBytes = new Uint8Array(buffer);
           const originalEndTick = !preserveOriginal ? getLastNoteTick(midiInfo.noteEvents) : null;
@@ -12566,14 +12600,16 @@ JP/QcQCc9gC2cgCINQGEKQ==
                 originalEndTick,
                 shiftTicks
               );
-          const includeSequNotes = true;
+          const includeSequNotes = preserveOriginal;
+          const noteRecordMode = preserveOriginal ? "logic" : null;
           const aiffResult = await buildAiffFromChords(
             shiftTicks ? shiftChordTicks(chords, shiftTicks) : chords,
             midiInfo.ppq,
             midiBytes,
             includeSequNotes,
-            null,
-            gateToNext
+            midiInfo.noteEvents,
+            gateToNext,
+            noteRecordMode
           );
           if (!aiffResult.notesIncluded && includeSequNotes) {
             logLine("Sequ notes skipped to fit template size.");
